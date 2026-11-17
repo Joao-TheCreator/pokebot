@@ -115,6 +115,28 @@ canvas{display:block;width:100%;height:34px;margin-top:6px}
 .lg .tp{font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;letter-spacing:.04em}
 .tp.compra{background:rgba(74,222,128,.14);color:var(--ok)}.tp.hunt{background:rgba(96,165,250,.14);color:var(--blue)}.tp.erro{background:rgba(248,113,113,.14);color:var(--bad)}.tp.outro{background:var(--card2);color:var(--mut)}
 .lg .tx{word-break:break-word}.lg .tx.erro{color:var(--bad)}
+/* aba Automacao: chave geral, ouro guardado e uma linha por item (abaixo de / compra ate) */
+.sw{display:flex;align-items:center;gap:10px;cursor:pointer}
+.sw input{position:absolute;opacity:0;width:1px;height:1px}
+.sw .tr{width:40px;height:22px;border-radius:11px;background:var(--card2);border:1px solid var(--line);position:relative;flex:none;transition:.15s}
+.sw .tr::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--mut);transition:.15s}
+.sw input:checked+.tr{background:var(--ac);border-color:var(--ac)}
+.sw input:checked+.tr::after{left:20px;background:#fff}
+.sw input:focus-visible+.tr{outline:2px solid var(--ac2);outline-offset:2px}
+.num{width:100%;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:7px;padding:5px 7px;font:inherit;font-variant-numeric:tabular-nums;text-align:right;user-select:text}
+.num:focus{outline:none;border-color:var(--ac)}
+.num.zero{color:var(--mut)}
+.it2{display:grid;grid-template-columns:minmax(0,1fr) 64px 64px;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+.it2:last-child{border-bottom:0}
+.it2 b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it2 small{color:var(--mut);font-size:11px}
+.it2 .q{display:inline-block;min-width:34px;text-align:center;font-size:10.5px;font-weight:700;padding:0 5px;border-radius:5px;background:var(--card2);color:var(--mut);margin-right:5px}
+.it2 .q.tem{background:rgba(139,108,246,.2);color:var(--ac2)}
+.it2.off b{color:var(--mut);font-weight:600}
+.it2.warn .num{border-color:var(--warn)}
+.hd2{display:grid;grid-template-columns:minmax(0,1fr) 64px 64px;gap:6px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);padding-top:4px}
+.hd2 span{text-align:right}
+.plan div{padding:3px 0;border-bottom:1px solid var(--line);font-size:11.5px}.plan div:last-child{border-bottom:0}
 /* avisos no canto (embaixo do painel) */
 .toasts{position:fixed;right:10px;bottom:10px;width:calc(var(--pw) - 20px);display:flex;flex-direction:column;gap:8px;z-index:20}
 .toast{background:var(--card);border:1px solid var(--ac);border-radius:10px;padding:10px;box-shadow:0 10px 28px #000a;display:flex;flex-direction:column;gap:6px;animation:tin .2s ease-out}
@@ -145,7 +167,7 @@ canvas{display:block;width:100%;height:34px;margin-top:6px}
 <aside class="panel" id="panel">
   <div class="ph"><div class="badge" id="pBadge">C1</div><div class="nm"><b id="pNome">–</b><span id="pSub">–</span></div>
     <button class="btn g sm" onclick="send('home:'+sel)" title="Voltar para pokeidle.io">Jogo</button><button class="btn g sm" onclick="send('reload:'+sel)" title="Recarregar">⟳</button></div>
-  <div class="tabs" id="tabs"><button data-t="conta" class="on">Conta</button><button data-t="hunts">Hunts</button><button data-t="sistema">Sistema</button><button data-t="regras">Regras</button><button data-t="log">Log</button></div>
+  <div class="tabs" id="tabs"><button data-t="conta" class="on">Conta</button><button data-t="auto">Auto</button><button data-t="hunts">Hunts</button><button data-t="sistema">Sistema</button><button data-t="regras">Regras</button><button data-t="log">Log</button></div>
   <div class="body" id="body"></div>
 </aside>
 <div class="toasts" id="toasts" aria-live="polite"></div>
@@ -234,6 +256,8 @@ function drawPanel(force){
     const e=estoque[n],cs=consumos[n];
     h+=`<div class="card"><div class="lbl"><span>Estoque</span><span>${e?hora(e.at):''}</span></div>${e?estoqueBarras(e,cs):'<div class="empty">lendo…</div>'}
       <button class="btn g" id="bRec" style="width:100%;margin-top:8px">Recomprar agora</button><div class="msg" id="mRec" style="margin-top:6px">${esc(busy.rec||'')}</div></div>`;
+  }else if(tab==='auto'){
+    h=autoHtml(n);
   }else if(tab==='hunts'){
     if(!r)h='<div class="card"><div class="empty">Sem análise desta conta. Abra a aba Conta e clique em Analisar.</div></div>';
     else h=`<div class="card"><div class="segs" id="crit">${['XP/h','Ouro/h','Shiny/h'].map(c=>`<button class="${c===crit?'on':''}" data-c="${c}">${c.replace('/h','')}</button>`).join('')}</div></div>
@@ -278,7 +302,44 @@ function estoqueBarras(e,cs){
       <span class="msg" style="${baixo?'color:var(--bad)':c&&c.horasRestantes!=null&&c.horasRestantes<3?'color:var(--warn)':''}">${baixo?'abaixo do mínimo · ':''}${prev}</span></div>`}).join('')
     +`<div class="msg">${e.lancaBola?'Lança bola sozinho (VIP)':'Sem lançar bola'} · recompra automática a cada 10 min</div>`}
 
-// ---------- avisos no canto: um cartao por pedido de aprovacao novo ----------
+// ---------- aba Automacao ----------
+// autoCfg[conta] = o que esta salvo; autoDraft[conta] = o que voce esta editando (so vai para o rules.json no Salvar)
+const autoCfg={},autoDraft={},autoMsg={},GRUPOS=[['Bolas',/Ball/],['Poções',/Potion/],['Revives',/Revive/]];
+async function loadAuto(n,force){if(autoCfg[n]&&!force)return;try{const c=await api('automacao?acc='+n);autoCfg[n]=c;autoDraft[n]=JSON.parse(JSON.stringify({ativo:c.ativo,guardarOuro:c.guardarOuro,itens:c.itens}));if(tab==='auto')drawPanel(true)}catch(x){autoMsg[n]='Erro ao ler: '+esc(x.message);if(tab==='auto')drawPanel(true)}}
+const sujo=n=>autoCfg[n]&&JSON.stringify(autoDraft[n])!==JSON.stringify({ativo:autoCfg[n].ativo,guardarOuro:autoCfg[n].guardarOuro,itens:autoCfg[n].itens});
+function autoHtml(n){
+  const c=autoCfg[n],d=autoDraft[n];if(!c){loadAuto(n);return '<div class="card"><div class="empty">lendo a automação…</div></div>'}
+  const e=estoque[n]||{itens:{}},pr=c.precos||{},s=status[n]||{};
+  const linha=i=>{const r=d.itens[i]||{abaixo:0,ate:0},tem=e.itens[i]||0,off=!r.abaixo,warn=r.abaixo&&r.ate<=r.abaixo;
+    return `<div class="it2 ${off?'off':''} ${warn?'warn':''}" data-item="${esc(i)}"><span><b><span class="q ${tem?'tem':''}">${fmt(tem)}</span>${esc(i)}</b><small>${pr[i]?fmt(pr[i])+' de ouro':'preço ainda não visto'}</small></span>
+      <input class="num ${r.abaixo?'':'zero'}" type="number" min="0" max="1000" step="1" id="ab-${i.replace(/ /g,'_')}" data-k="abaixo" value="${r.abaixo}" aria-label="${esc(i)}: comprar quando tiver menos que">
+      <input class="num ${r.ate?'':'zero'}" type="number" min="0" max="1000" step="1" id="at-${i.replace(/ /g,'_')}" data-k="ate" value="${r.ate}" aria-label="${esc(i)}: comprar até"></div>`};
+  return `<div class="card"><label class="sw"><input type="checkbox" id="autoOn" ${d.ativo?'checked':''}><span class="tr"></span><b>Ficar na melhor hunt e repor o estoque</b></label>
+    <div class="msg" style="margin-top:6px">Desligada, o robô não troca de hunt nem compra nada nesta conta. "Recomprar agora" continua funcionando.</div></div>
+    <div class="card"><div class="lbl"><span>Ouro</span><span>tem ${fmt(s.gold)}</span></div>
+      <div style="display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center"><span>Guardar sempre</span><input class="num" type="number" min="0" step="1000" id="guardar" value="${d.guardarOuro}"><span class="msg">de ouro</span></div>
+      <div class="msg" style="margin-top:6px">O robô só gasta o que passar disso. Pode gastar agora: <b style="color:var(--tx)">${fmt(Math.max(0,(s.gold||0)-(+d.guardarOuro||0)))}</b></div></div>
+    <div class="card"><div class="msg">Para cada item: quando ficar <b style="color:var(--tx)">abaixo</b> do primeiro número, compra até o segundo. <b style="color:var(--tx)">0</b> ignora o item.</div>
+      ${GRUPOS.map(([g,re])=>`<div class="hd2"><span style="text-align:left">${g}</span><span>Abaixo de</span><span>Compra até</span></div>${c.itensOrdem.filter(i=>re.test(i)).map(linha).join('')}`).join('')}</div>
+    <div class="card"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><button class="btn" id="aSave" ${sujo(n)?'':'disabled'}>${sujo(n)?'Salvar':'Salvo'}</button><button class="btn g" id="aSim" ${sujo(n)?'disabled title="Salve antes de simular"':''}>Simular compra agora</button></div>
+      ${sujo(n)?'<button class="btn g sm" id="aUndo" style="margin-top:6px;width:100%">Desfazer mudanças</button>':''}
+      <div class="msg" id="aMsg" style="margin-top:6px">${autoMsg[n]||(c.salva?'':'Ainda usando as regras antigas do rules.json. Salve aqui para passar a usar esta tela.')}</div></div>`}
+$('#body').addEventListener('input',e=>{if(tab!=='auto')return;const n=NAMES[sel],d=autoDraft[n];if(!d)return;const t=e.target;
+  if(t.id==='guardar')d.guardarOuro=Math.max(0,Math.floor(+t.value||0));
+  else if(t.id==='autoOn')d.ativo=t.checked;
+  else if(t.dataset.k){const i=t.closest('[data-item]').dataset.item;d.itens[i]={...(d.itens[i]||{abaixo:0,ate:0}),[t.dataset.k]:Math.max(0,Math.min(1000,Math.floor(+t.value||0)))};
+    t.classList.toggle('zero',!+t.value);const r=d.itens[i],row=t.closest('.it2');row.classList.toggle('off',!r.abaixo);row.classList.toggle('warn',!!r.abaixo&&r.ate<=r.abaixo)}
+  autoMsg[n]='';const b=$('#aSave');if(b){b.disabled=!sujo(n);b.textContent=sujo(n)?'Salvar':'Salvo'}const sm=$('#aSim');if(sm)sm.disabled=sujo(n)});
+$('#body').addEventListener('change',e=>{if(tab==='auto'&&(e.target.id==='autoOn'||e.target.id==='guardar'))drawPanel(true)});
+$('#body').addEventListener('click',async e=>{if(tab!=='auto')return;const n=NAMES[sel];
+  if(e.target.id==='aUndo'){delete autoMsg[n];autoDraft[n]=JSON.parse(JSON.stringify({ativo:autoCfg[n].ativo,guardarOuro:autoCfg[n].guardarOuro,itens:autoCfg[n].itens}));drawPanel(true);return}
+  if(e.target.id==='aSave'){e.target.disabled=true;e.target.textContent='Salvando…';
+    try{const r=await fetch('/automacao?acc='+n,{method:'POST',body:JSON.stringify(autoDraft[n])}).then(x=>x.json());if(!r.ok)throw new Error(r.error);
+      await loadAuto(n,true);autoMsg[n]='Salvo. Vale a partir da próxima checagem (a cada 10 min).'}catch(x){autoMsg[n]='Não salvou: '+esc(x.message)}drawPanel(true);return}
+  if(e.target.id==='aSim'){autoMsg[n]='Abrindo o Market para ver preços (não compra nada)…';drawPanel(true);
+    try{const r=await api('recomprar?acc='+n+'&dry=1');const cp=r.compras||[];
+      autoMsg[n]=cp.length?'<div class="plan">'+cp.map(p=>`<div>${p.qtd?`<b>${fmt(p.qtd)} ${esc(p.item)}</b> · ${fmt(p.custo)} de ouro`:`${esc(p.item)}: ${esc(p.erro||p.motivo||'nada')}`}</div>`).join('')+'</div>':'Nada a comprar agora: todos os itens estão acima do mínimo.';
+      loadAuto(n,true)}catch(x){autoMsg[n]='Erro: '+esc(x.message)}drawPanel(true)}});
 const toastsVistos=new Set(),toastsFechados=new Set(),toastHora={};
 function drawToasts(){
   const ids=new Set(pend.map(p=>String(p.id)));
@@ -333,7 +394,7 @@ function onMsg(x){
 }
 if(wv){wv.addEventListener('message',e=>{try{onMsg(JSON.parse(e.data))}catch{}});send('estado')}
 async function poll(){try{const o=await api('overview');status=o.status||{};logs=o.log||[];pend=o.pending||[];
-  if(++nPoll%10===0)api('rankings').then(r=>{ranks=r}).catch(()=>{});if(nPoll===1)ticker();drawRail();drawToasts();if(tab!=='regras')drawPanel()}catch{}}
+  if(++nPoll%10===0)api('rankings').then(r=>{ranks=r}).catch(()=>{});if(nPoll===1)ticker();drawRail();drawToasts();if(tab!=='regras'&&tab!=='auto')drawPanel()}catch{}}
 async function loadEstoque(force){const n=NAMES[sel];if(!force&&estoque[n]&&Date.now()-estoque[n].at<20000)return;
   try{const [e,c]=await Promise.all([api('estoque?acc='+n),api('consumo?acc='+n).catch(()=>null)]);estoque[n]={...e,at:Date.now()};if(c)consumos[n]=c;if(tab==='conta')drawPanel()}catch{}}
 api('rankings').then(r=>{ranks=r;drawPanel(true)}).catch(()=>{});

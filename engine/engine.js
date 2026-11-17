@@ -480,12 +480,56 @@ function lerPrecos(page) {
   });
 }
 
+// Precos vistos no Market ficam guardados (data/precos.json) para o painel mostrar o custo de cada item.
+const PRECOS = path.join(ROOT, 'data', 'precos.json');
+function guardarPrecos(p) {
+  if (!p || !Object.keys(p).length) return;
+  let old = {}; try { old = JSON.parse(fs.readFileSync(PRECOS, 'utf8')); } catch {}
+  try { fs.writeFileSync(PRECOS, JSON.stringify({ ...old, ...p })); } catch {}
+}
+const tipoItem = (item) => (/Ball/.test(item) ? 'ball' : /Revive/.test(item) ? 'revive' : 'potion');
+
+// Recompra por item (painel Automacao): accounts[acc].auto = { guardarOuro, itens: { Nome: { abaixo, ate } } }.
+// Para cada item: se tiver menos que "abaixo", compra ate chegar em "ate". abaixo=0 ignora o item.
+// So gasta o que passar de guardarOuro. Ordem: pocoes, revives, bolas.
+async function restockItens(page, acc, auto, dry, st, itens, lancaBola) {
+  let orcamento = Math.max(0, st.gold - (+auto.guardarOuro || 0));
+  const ordem = { potion: 0, revive: 1, ball: 2 };
+  const alvos = Object.entries(auto.itens || {})
+    .map(([item, r]) => ({ item, tipo: tipoItem(item), tem: itens[item] || 0, abaixo: +r.abaixo || 0, ate: +r.ate || 0 }))
+    .filter(m => m.abaixo > 0 && m.ate > m.tem && m.tem < m.abaixo)
+    .sort((a, b) => ordem[a.tipo] - ordem[b.tipo]);
+  const plano = [], precos = {};
+  let abaAberta = null;
+  for (const m of alvos) {
+    if (abaAberta !== m.tipo) { await abrirMarket(page, ABA[m.tipo]); Object.assign(precos, await lerPrecos(page)); abaAberta = m.tipo; }
+    const preco = precos[m.item];
+    if (!preco) { plano.push({ ...m, erro: 'preco nao encontrado' }); continue; }
+    const qtd = Math.min(m.ate - m.tem, Math.floor(orcamento / preco), 1000);
+    if (qtd < 1) { plano.push({ tipo: m.tipo, item: m.item, tinha: m.tem, qtd: 0, preco, motivo: 'sem ouro acima do guardado' }); continue; }
+    const p = { tipo: m.tipo, item: m.item, tinha: m.tem, qtd, preco, custo: qtd * preco };
+    if (!dry) p.resultado = await buy(page, m.item, qtd);
+    orcamento -= p.custo; plano.push(p);
+  }
+  guardarPrecos(precos);
+  return plano;
+}
+
 // Planeja e (se dry=false) executa a recompra de uma conta.
 async function restock(page, acc, regras, dry) {
   const st = parseStatus(await page.evaluate(() => document.body.innerText), acc);
   if (!st.loggedIn || st.gold == null) throw new Error('nao consegui ler o ouro da conta');
   const { itens, lancaBola } = await lerEstoque(page);
   const R = regras.restock || {}, conta = (regras.accounts || {})[acc] || {};
+  if (conta.auto && conta.auto.itens) {
+    const compras = await restockItens(page, acc, conta.auto, dry, st, itens, lancaBola);
+    if (await page.locator('text="Comprar" >> visible=true').count()) {
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.locator('.modal-fechar >> visible=true, button[title="Fechar"] >> visible=true').first().click({ timeout: 1500 }).catch(() => {});
+    }
+    const depois = dry ? null : parseStatus(await page.evaluate(() => document.body.innerText), acc).gold;
+    return { conta: acc, ouroAntes: st.gold, ouroDepois: depois, estoque: itens, lancaBola, compras, simulacao: !!dry, regra: 'itens' };
+  }
   const reserva = R.reservaOuro || 0;
   let orcamento = Math.max(0, Math.min(Math.floor(st.gold * (regras.maxGoldSpendPct || 75) / 100), st.gold - reserva));
   const pocao = conta.potion || (regras.potion || {}).type || 'Great Potion';
@@ -502,7 +546,7 @@ async function restock(page, acc, regras, dry) {
   for (const tipo of ordem) {
     const m = metas.find(x => x.tipo === tipo);
     if (!m || m.tem >= m.gatilho) continue; // ainda tem estoque: nao compra
-    if (!dry || !precos[m.item]) { await abrirMarket(page, ABA[tipo]); Object.assign(precos, await lerPrecos(page)); }
+    if (!dry || !precos[m.item]) { await abrirMarket(page, ABA[tipo]); Object.assign(precos, await lerPrecos(page)); guardarPrecos(precos); }
     const preco = precos[m.item];
     if (!preco) { plano.push({ ...m, erro: 'preco nao encontrado' }); continue; }
     let qtd = m.alvo === Infinity ? Math.floor(orcamento / preco) : Math.max(0, m.alvo - m.tem);

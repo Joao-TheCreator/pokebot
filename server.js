@@ -15,6 +15,22 @@ const HUNTS = path.join(__dirname, 'data', 'hunts.json');
 const LOGF = path.join(__dirname, 'data', 'log.jsonl');
 
 const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
+// chave "Ficar na melhor hunt e repor o estoque" de cada conta (painel Automacao); sem config = ligada
+const autoLigada = (acc) => ((readJson(path.join(__dirname, 'config', 'rules.json'), {}).accounts || {})[acc]?.auto?.ativo) !== false;
+const ITENS = ['Poke Ball', 'Great Ball', 'Super Ball', 'Ultra Ball', 'Beast Ball', 'Small Potion', 'Great Potion', 'Ultra Potion',
+  'Hyper Potion', 'Ultimate Potion', 'Golden Potion', 'Revive', 'Max Revive'];
+// automacao de uma conta: a salva no painel, ou a equivalente das regras antigas (restock/potion/revive/ultraBall)
+function automacao(acc, R = readJson(path.join(__dirname, 'config', 'rules.json'), {})) {
+  const conta = (R.accounts || {})[acc] || {}, rs = R.restock || {};
+  if (conta.auto && conta.auto.itens) return { ativo: conta.auto.ativo !== false, guardarOuro: +conta.auto.guardarOuro || 0, itens: conta.auto.itens, salva: true };
+  const itens = Object.fromEntries(ITENS.map(i => [i, { abaixo: 0, ate: 0 }]));
+  const pocao = conta.potion || (R.potion || {}).type || 'Great Potion';
+  itens[pocao] = { abaixo: rs.potionMin ?? 100, ate: conta.potionStock || (R.potion || {}).targetStock || 300 };
+  itens['Revive'] = { abaixo: rs.reviveMin ?? 5, ate: (R.revive || {}).targetStock || 10 };
+  const min = (R.ultraBall || {}).minAfterBuy ?? 150;
+  itens[rs.ball || 'Ultra Ball'] = { abaixo: min, ate: min * 2 };
+  return { ativo: conta.auto?.ativo !== false, guardarOuro: rs.reservaOuro || 0, itens, salva: false };
+}
 const rules = () => readJson(RULES, {});
 const recent = [];
 const log = (acc, what) => {
@@ -82,7 +98,7 @@ async function restockLoop() {
   restocking = true;
   try {
     for (const [i, acc] of Object.keys(PORTS).entries()) {
-      if (!statusCache[acc]?.loggedIn) continue;
+      if (!statusCache[acc]?.loggedIn || !autoLigada(acc)) continue; // conta com a automacao desligada no painel: nao mexe
       if (Date.now() - (ultimoRestock[acc] || 0) < (R.intervaloMin || 10) * 60000) continue;
       ultimoRestock[acc] = Date.now();
       try {
@@ -152,7 +168,7 @@ async function huntLoop() {
   analisando = true;
   try {
     for (const [i, acc] of Object.keys(PORTS).entries()) {
-      if (!statusCache[acc]?.loggedIn) continue;
+      if (!statusCache[acc]?.loggedIn || !autoLigada(acc)) continue; // conta com a automacao desligada no painel: nao mexe
       if (Date.now() - (ultimaAnalise[acc] || 0) < H.intervaloMin * 60000) continue;
       if (metrics && metrics.foco === i && metrics.visiveis && metrics.visiveis.filter(Number).length === 1) continue; // so ela na tela: espera
       ultimaAnalise[acc] = Date.now();
@@ -191,6 +207,25 @@ async function run(call, args, acc) {
 
 const routes = {
   async rules() { return rules(); },
+  // painel Automacao: GET devolve a config da conta + precos conhecidos; POST (corpo JSON) salva em rules.json
+  async automacao({ acc }, body) {
+    if (!PORTS[acc]) throw new Error('conta desconhecida: ' + acc);
+    if (body) {
+      const a = JSON.parse(body), R = readJson(RULES, {});
+      const itens = {};
+      for (const i of ITENS) {
+        const r = (a.itens || {})[i] || {};
+        const abaixo = Math.max(0, Math.floor(+r.abaixo || 0)), ate = Math.max(0, Math.min(1000, Math.floor(+r.ate || 0)));
+        itens[i] = { abaixo, ate: Math.max(ate, abaixo ? abaixo : 0) };
+      }
+      R.accounts = R.accounts || {};
+      R.accounts[acc] = { ...(R.accounts[acc] || {}), auto: { ativo: a.ativo !== false, guardarOuro: Math.max(0, Math.floor(+a.guardarOuro || 0)), itens } };
+      fs.writeFileSync(RULES, JSON.stringify(R, null, 2));
+      log(acc, 'automacao salva: ' + (a.ativo === false ? 'desligada' : 'ligada') + ', guarda ' + (R.accounts[acc].auto.guardarOuro).toLocaleString('pt-BR') + ' de ouro');
+      return automacao(acc);
+    }
+    return { ...automacao(acc), itensOrdem: ITENS, precos: readJson(path.join(__dirname, 'data', 'precos.json'), {}) };
+  },
   async saverules(q, body) { JSON.parse(body); fs.writeFileSync(RULES, body); log('-', 'regras salvas'); return 'ok'; },
   async overview() {
     return { status: statusCache, pending: Object.values(pending), log: recent.slice(-40).reverse(), open: Object.keys(ctxs), mode: actions.mode() };
