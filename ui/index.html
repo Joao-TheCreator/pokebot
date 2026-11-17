@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PokeBot</title>
+<style>
+:root{--bg:#110f18;--card:#1c1928;--card2:#231f33;--line:#302b44;--tx:#ece9f5;--mut:#8f88aa;--ac:#8b6cf6;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--blue:#60a5fa}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:var(--bg);color:var(--tx);font:12.5px/1.4 "Segoe UI",system-ui,sans-serif;overflow:hidden}
+body{display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:8px;padding:10px 12px 0}
+header h1{font-size:14px;font-weight:700;flex:1}header h1 span{color:var(--ac)}
+.mut{color:var(--mut)}
+nav{display:flex;gap:2px;padding:8px 10px 0;border-bottom:1px solid var(--line)}
+nav button{flex:1;background:none;border:0;border-bottom:2px solid transparent;color:var(--mut);padding:6px 0 7px;font:inherit;font-weight:600;cursor:pointer}
+nav button.on{color:var(--tx);border-bottom-color:var(--ac)}
+nav .n{display:inline-block;min-width:16px;padding:0 4px;border-radius:8px;background:var(--bad);color:#fff;font-size:10px;margin-left:3px}
+main{flex:1;overflow-y:auto;overflow-x:hidden;padding:10px}
+main::-webkit-scrollbar{width:6px}main::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.tab{display:none;flex-direction:column;gap:8px}.tab.on{display:flex}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;min-width:0}
+.lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin-bottom:6px}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--card2);border-radius:7px;padding:2px;gap:2px}
+.seg button{background:none;border:0;color:var(--mut);border-radius:5px;padding:5px 0;font:inherit;font-size:11.5px;cursor:pointer;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.seg button.on{background:var(--ac);color:#fff}
+.btn{width:100%;background:var(--ac);color:#fff;border:0;border-radius:7px;padding:7px;font:inherit;font-weight:600;cursor:pointer}
+.btn:disabled{opacity:.6;cursor:wait}.btn.g{background:var(--card2);color:var(--tx);border:1px solid var(--line)}
+.row{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:8px;align-items:center;padding:7px 2px;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.rk{color:var(--mut);font-variant-numeric:tabular-nums;text-align:center}.rk.top{color:var(--warn)}
+.nm{min-width:0}.nm b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.nm small{color:var(--mut);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.val{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+.chip{display:inline-block;font-size:10px;padding:0 5px;border-radius:6px;margin-top:2px;font-weight:600}
+.chip.ok{background:rgba(74,222,128,.15);color:var(--ok)}.chip.w{background:rgba(251,191,36,.15);color:var(--warn)}.chip.b{background:rgba(248,113,113,.15);color:var(--bad)}
+.pend{border-color:var(--warn)}
+.pend .it{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;padding:4px 0}
+.pend .it button{padding:4px 8px;width:auto}
+textarea{width:100%;height:calc(100vh - 190px);min-height:200px;resize:none;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:8px;font:11.5px/1.45 Consolas,monospace;padding:8px}
+.log div{padding:3px 0;border-bottom:1px solid var(--line);word-break:break-word;font-size:11.5px}
+.empty{color:var(--mut);text-align:center;padding:14px 4px}
+.kv{display:flex;justify-content:space-between;gap:8px}
+.best{border-color:var(--ac);background:linear-gradient(180deg,rgba(139,108,246,.14),var(--card))}
+.best .h{font-size:15px;font-weight:700;margin:2px 0}.best .sub{color:var(--mut);font-size:11.5px}
+.best .alt{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);font-size:11.5px}
+</style></head><body>
+<header><h1>Poke<span>Bot</span></h1><span class="mut" id="upd"></span></header>
+<nav id="nav">
+  <button data-t="hunt" class="on">Hunts</button><button data-t="med">Medido</button>
+  <button data-t="aprov">Aprovar<span class="n" id="npend" hidden></span></button><button data-t="regras">Regras</button><button data-t="log">Log</button>
+</nav>
+<main>
+  <section class="tab on" id="t-hunt">
+    <div class="card">
+      <div class="lbl">Conta</div><div class="seg" id="accSeg"></div>
+      <div class="lbl" style="margin-top:10px">Critério</div><div class="seg" id="critSeg"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px">
+        <button class="btn" id="go">Analisar esta</button><button class="btn g" id="goAll">Analisar as 4</button></div>
+      <div class="mut" id="msg" style="margin-top:6px;font-size:11px"></div>
+    </div>
+    <div class="card best" id="best" hidden></div>
+    <div class="card" id="rank"></div>
+  </section>
+  <section class="tab" id="t-med"><div class="card" id="med"></div></section>
+  <section class="tab" id="t-aprov"><div class="card" id="pendList"></div></section>
+  <section class="tab" id="t-regras">
+    <textarea id="rules" spellcheck="false"></textarea>
+    <button class="btn" id="saverules">Salvar regras</button><div class="mut" id="rmsg"></div>
+  </section>
+  <section class="tab" id="t-log"><div class="card log" id="log"></div></section>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const api=async p=>{const r=await fetch('/'+p);const j=await r.json();if(!j.ok)throw new Error(j.error);return j.result};
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=n=>n==null?'–':Number(n).toLocaleString('pt-BR');
+const NAMES=window.CONTAS||['conta1','conta2','conta3','conta4'];
+const CRIT=[['XP/h','XP'],['Ouro/h','Ouro'],['Shiny/h','Shiny']];
+let acc=+(localStorage.getItem('acc')||2),crit=localStorage.getItem('crit')||'XP/h',ranks={};
+try{}catch{}
+
+// abas
+$('#nav').onclick=e=>{const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.id==='t-'+b.dataset.t))};
+
+function seg(el,items,cur,on){el.innerHTML=items.map(([v,l])=>`<button class="${v==cur?'on':''}" data-v="${v}" title="${esc(l)}">${esc(l)}</button>`).join('');
+  el.onclick=e=>{const b=e.target.closest('button');if(b)on(b.dataset.v)}}
+function drawSegs(){seg($('#accSeg'),NAMES.map((n,i)=>[i,(i+1)+' · '+(n.length>10?n.slice(0,9)+'…':n)]),acc,v=>{acc=+v;try{localStorage.setItem('acc',v)}catch{};drawSegs();drawRank()});
+  seg($('#critSeg'),CRIT,crit,v=>{crit=v;try{localStorage.setItem('crit',v)}catch{};drawSegs();drawRank()})}
+
+function risk(t){t=t||'';const n=parseInt(t.replace(/\D/g,''));
+  if(/hit/.test(t))return['b','☠ 1 golpe'];if(n>=40)return['b','risco '+n+'%'];if(n>=15)return['w','risco '+n+'%'];return['ok','risco '+(isNaN(n)?0:n)+'%']}
+function drawRank(){const r=ranks[NAMES[acc]];
+  const rec=r&&r.recomendacao&&r.recomendacao[crit];
+  $('#best').hidden=!rec;
+  if(rec){const m=rec.melhor,s=rec.segunda,lbl={'XP/h':'XP/h','Ouro/h':'ouro/h','Shiny/h':''}[crit];
+    const linha=o=>o?`${esc(o.pokemon)} Nv ${o.nivel} <span class="mut">· ${esc(o.regiao||'')}</span>`:'—';
+    $('#best').innerHTML=`<div class="lbl">Melhor hunt agora · ${esc(crit)}</div>`+
+      (m?`<div class="h">${linha(m)}</div><div class="sub">${esc(m.valor)} ${lbl} · ${esc(m.abatesH!=null?m.abatesH.toLocaleString('pt-BR'):'–')} abates/h · ${esc(m.risco||'')}</div>`
+        :'<div class="sub">Nenhuma hunt segura no top 15 (todas matam em 1 golpe ou passam do risco máximo).</div>')+
+      (s?`<div class="alt"><span class="mut">2ª opção:</span> ${linha(s)} · ${esc(s.valor)}</div>`:'')+
+      (r.tipoDoDia?`<div class="alt mut">Tipo do dia considerado: ${esc(r.tipoDoDia)} · hunt atual: ${esc(r.huntAtual||'—')}</div>`:'')}
+  if(!r){$('#rank').innerHTML='<div class="empty">Sem análise desta conta ainda.<br>Clique em analisar.</div>';return}
+  const rows=(r.ranking[crit]||[]).slice(0,10);
+  $('#rank').innerHTML=`<div class="lbl">${esc(r.pokemon.replace(/^# /,'').replace(' — ficha do PokeIdle',''))} · treinador Nv ${r.nivelTreinador} · ${new Date(r.at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>`+
+   (rows.length?rows.map(c=>{const m=(c[1]||'').match(/^(.*? Nv \d+)\s+(\S+)\s*(.*)$/)||[0,c[1],'',''];const [k,l]=risk(c[5]);
+     return `<div class="row"><span class="rk ${/👑/.test(c[0])?'top':''}">${esc(c[0].replace('👑','').trim())}</span>
+       <span class="nm"><b>${esc(m[1])}</b><small>${esc(m[2])} · ${esc(m[3])} · ${esc(c[3])} abates/h</small></span>
+       <span class="val">${esc(c[2]).replace(' capturas/h','')}<br><span class="chip ${k}">${l}</span></span></div>`}).join('')
+   :'<div class="empty">Sem dados neste critério.</div>')}
+async function loadRanks(){try{ranks=await api('rankings');drawRank()}catch{}}
+$('#goAll').onclick=async()=>{const b=$('#goAll');b.disabled=$('#go').disabled=true;$('#msg').textContent='Analisando as 4 contas… (~30 s)';
+  try{await api('rankall');$('#msg').textContent='Pronto: as 4 contas analisadas.';await loadRanks()}catch(e){$('#msg').textContent='Erro: '+e.message}b.disabled=$('#go').disabled=false};
+$('#go').onclick=async()=>{const b=$('#go');b.disabled=true;$('#msg').textContent='Copiando a ficha e consultando o pokeidleguide.io… (até 1 min)';
+  try{await api('rank?acc='+NAMES[acc]);$('#msg').textContent='Pronto.';await loadRanks()}catch(e){$('#msg').textContent='Erro: '+e.message}b.disabled=false};
+
+async function refresh(){try{
+  const o=await api('overview');
+  const n=o.pending.length;$('#npend').hidden=!n;$('#npend').textContent=n;
+  $('#pendList').innerHTML=n?o.pending.map(p=>`<div class="it"><span><b>${esc(p.acc)}</b><br><span class="mut">${esc(p.desc)}</span></span>
+     <span><button class="btn" onclick="dec('approve',${p.id})">Aprovar</button> <button class="btn g" onclick="dec('reject',${p.id})">Recusar</button></span></div>`).join('')
+     :'<div class="empty">Nada esperando aprovação.</div>';
+  $('#log').innerHTML=o.log.length?o.log.map(e=>`<div><span class="mut">${e.t.slice(11,19)}</span> <b>${esc(e.acc)}</b> ${esc(e.what)}</div>`).join(''):'<div class="empty">Sem ações ainda.</div>';
+  const h=await api('hunts');
+  $('#med').innerHTML='<div class="lbl">Ganho real das suas contas</div>'+(h.length?h.map(x=>`<div class="row"><span class="rk">·</span>
+     <span class="nm"><b>${esc(x.hunt.replace(' · nível ',' Nv '))}</b><small>${x.horas} h medidas${x.diasShiny?' · shiny ~'+x.diasShiny+' dias':''}</small></span>
+     <span class="val">${fmt(x.xpPorHora)} xp/h<br><span class="mut">${fmt(x.ouroPorHora)} ouro/h</span></span></div>`).join('')
+     :'<div class="empty">Deixe uma conta caçando alguns minutos.</div>');
+  $('#upd').textContent=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}catch{$('#upd').textContent='servidor offline'}}
+async function dec(a,id){await api(a+'?id='+id);refresh()}
+$('#saverules').onclick=async()=>{try{JSON.parse($('#rules').value)}catch{$('#rmsg').textContent='JSON inválido — nada salvo.';return}
+  await fetch('/saverules',{method:'POST',body:$('#rules').value});$('#rmsg').textContent='Salvo.'};
+api('rules').then(r=>$('#rules').value=JSON.stringify(r,null,2)).catch(()=>{});
+drawSegs();loadRanks();refresh();setInterval(refresh,5000);
+</script></body></html>

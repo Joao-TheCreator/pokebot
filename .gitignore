@@ -1,0 +1,22 @@
+# Logins das contas (cookies e sessao do navegador): NUNCA subir
+profiles/
+
+# Dados locais: logs, prints, historico de hunts e consumo
+data/
+
+# Ajustes desta maquina: chave do conector MCP, nomes das contas e regras
+# (os modelos config/*.example.json vao para o GitHub; o app copia na primeira vez)
+config/app.json
+config/contas.json
+config/rules.json
+
+# Dependencias (cada um roda npm install)
+node_modules/
+
+# Executaveis gerados (cada um compila com npm run build-host)
+host/bin/*.exe
+host/bin/*.pdb
+
+# Backups
+*.bak*
+*.bak-*

@@ -1,0 +1,4 @@
+{
+  "_nota": "Copie para contas.json e troque pelos nomes das suas 4 contas (ordem C1..C4). O app cria contas.json sozinho na primeira vez.",
+  "contas": ["conta1", "conta2", "conta3", "conta4"]
+}

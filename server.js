@@ -1,0 +1,331 @@
+// PokeBot: painel + API local (127.0.0.1:8787). Nada sai do PC.
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+// primeira vez neste PC: cria as configs locais a partir dos modelos (config/*.example.json)
+for (const f of ['contas', 'rules']) {
+  const local = path.join(__dirname, 'config', f + '.json'), modelo = path.join(__dirname, 'config', f + '.example.json');
+  if (!fs.existsSync(local) && fs.existsSync(modelo)) fs.copyFileSync(modelo, local);
+}
+const { actions, ctxs, PORTS, CONTAS } = require('./engine/engine');
+
+const PORT = 8787;
+const RULES = path.join(__dirname, 'config', 'rules.json');
+const HUNTS = path.join(__dirname, 'data', 'hunts.json');
+const LOGF = path.join(__dirname, 'data', 'log.jsonl');
+
+const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
+const rules = () => readJson(RULES, {});
+const recent = [];
+const log = (acc, what) => {
+  const e = { t: new Date().toISOString(), acc, what };
+  fs.appendFile(LOGF, JSON.stringify(e) + '\n', () => {});
+  recent.push(e); if (recent.length > 200) recent.shift();
+};
+
+// ---- rastreio de XP/h e ouro/h por hunt (dados proprios, medidos no jogo) ----
+const last = {};
+const statusCache = {};
+const RANKS = path.join(__dirname, 'data', 'ranks.json');
+const ranks = readJson(RANKS, {});
+const hunts = readJson(HUNTS, {}); // hunt -> {sec, xp, gold}
+// ---- economia de maquina: conta fora de foco = animacoes pausadas + Modo Economia do jogo ----
+// config/app.json: "economia": { "ativa": true, "modoJogo": true }  (ativa=false desliga tudo)
+const APPCFG = path.join(__dirname, 'config', 'app.json');
+const ecoFoco = {}; // acc -> ultimo estado aplicado: 'fora' | 'foco'
+async function economia(acc, idx) {
+  const cfg = { ativa: true, modoJogo: true, ...(readJson(APPCFG, {}).economia || {}) };
+  const foco = metrics && typeof metrics.foco === 'number' ? metrics.foco : -1;
+  const estado = !cfg.ativa || foco === idx ? 'foco' : 'fora';
+  const troca = ecoFoco[acc] !== estado;
+  if (estado === 'foco' && !troca) return null; // em foco: nada a fazer depois de restaurar uma vez
+  const r = await actions.economia({ acc, on: estado === 'fora', jogo: troca && cfg.modoJogo });
+  ecoFoco[acc] = estado;
+  if (r && r.acao) log(acc, 'economia: ' + r.acao);
+  return r;
+}
+
+async function tick() {
+  const accs = Object.keys(PORTS);
+  for (const acc of accs) { // conecta sozinho em cada conta aberta no app
+    try {
+      const s = await actions.status({ acc });
+      let eco = null;
+      try { eco = await economia(acc, accs.indexOf(acc)); } catch { delete ecoFoco[acc]; }
+      statusCache[acc] = { ...s, economia: eco ? eco.eco : (statusCache[acc] || {}).economia ?? null, at: Date.now() };
+      const p = last[acc];
+      if (p && s.loggedIn && p.loggedIn && s.hunt) {
+        const dt = (Date.now() - p.at) / 1000;
+        const dxp = s.level === p.level ? s.xp - p.xp : (s.level > p.level ? p.xpMax - p.xp + s.xp : 0);
+        const dg = Math.max(0, s.gold - p.gold); // gasto nao conta como ganho
+        if (dt < 120 && dxp >= 0) {
+          const h = (hunts[s.hunt] ||= { sec: 0, xp: 0, gold: 0 });
+          h.sec += dt; h.xp += dxp; h.gold += dg;
+        }
+      }
+      last[acc] = { ...s, at: Date.now() };
+    } catch (e) { statusCache[acc] = { error: String(e.message || e), at: Date.now() }; }
+  }
+  fs.writeFile(HUNTS, JSON.stringify(hunts), () => {});
+}
+let metrics = null;
+let ticking = false;
+setInterval(async () => { if (ticking) return; ticking = true; try { await tick(); } finally { ticking = false; } }, 5000);
+
+// ---- Recompra automatica: a cada restock.intervaloMin, cada conta logada compra o que faltar (rules.json) ----
+// A conta que voce esta olhando (em foco) so e mexida se acabou poção, revive ou bola — para nao abrir o Market na sua cara.
+const ultimoRestock = {};
+let restocking = false;
+async function restockLoop() {
+  const R = rules().restock || {};
+  if (!R.auto || restocking) return;
+  restocking = true;
+  try {
+    for (const [i, acc] of Object.keys(PORTS).entries()) {
+      if (!statusCache[acc]?.loggedIn) continue;
+      if (Date.now() - (ultimoRestock[acc] || 0) < (R.intervaloMin || 10) * 60000) continue;
+      ultimoRestock[acc] = Date.now();
+      try {
+        if (metrics && metrics.foco === i) {
+          const { itens, lancaBola } = await actions.estoque({ acc });
+          const zerou = !Object.entries(itens).some(([k, v]) => /Potion/.test(k) && v > 0) || (lancaBola && !(itens[R.ball || 'Ultra Ball'] > 0));
+          if (!zerou) continue;
+        }
+        const r = await actions.restock({ acc });
+        const feitas = r.compras.filter(c => c.resultado);
+        if (feitas.length) log(acc, 'recompra: ' + feitas.map(c => `${c.qtd} ${c.item}`).join(', ') + ` (${(r.ouroAntes - r.ouroDepois).toLocaleString('pt-BR')} ouro)`);
+      } catch (e) { log(acc, 'recompra falhou: ' + (e.message || e)); }
+    }
+  } finally { restocking = false; }
+}
+setInterval(restockLoop, 60000);
+setTimeout(restockLoop, 20000);
+
+// ---- Consumo de estoque: le o estoque de cada conta a cada 2 min e guarda 3 h de amostras ----
+// Taxa = soma das quedas / tempo (compras, que fazem o numero subir, nao contam). Usado para "acaba em ~X h".
+const estoqueHist = {}; // acc -> [{t, itens}]
+async function estoqueLoop() {
+  for (const acc of Object.keys(PORTS)) {
+    if (!statusCache[acc]?.loggedIn) continue;
+    try {
+      const { itens } = await actions.estoque({ acc });
+      const h = (estoqueHist[acc] ||= []);
+      h.push({ t: Date.now(), itens });
+      while (h.length && Date.now() - h[0].t > 3 * 3600000) h.shift();
+    } catch {}
+  }
+}
+setInterval(estoqueLoop, 120000);
+setTimeout(estoqueLoop, 15000);
+function consumo(acc) {
+  const h = estoqueHist[acc] || [];
+  const R = rules();
+  const out = {};
+  if (h.length < 2) return { amostras: h.length, itens: out };
+  const horas = (h[h.length - 1].t - h[0].t) / 3600000;
+  for (const item of Object.keys(h[h.length - 1].itens)) {
+    let gasto = 0;
+    for (let i = 1; i < h.length; i++) gasto += Math.max(0, (h[i - 1].itens[item] || 0) - (h[i].itens[item] || 0));
+    const tem = h[h.length - 1].itens[item] || 0;
+    const porHora = horas > 0 ? gasto / horas : 0;
+    out[item] = { tem, porHora: Math.round(porHora * 10) / 10, horasRestantes: porHora > 0 ? Math.round(tem / porHora * 10) / 10 : null };
+  }
+  const acc_ = R.accounts?.[acc] || {};
+  return { amostras: h.length, minutos: Math.round(horas * 60), itens: out,
+    minimos: { potion: R.restock?.potionMin ?? 100, revive: R.restock?.reviveMin ?? 5, ball: R.ultraBall?.minAfterBuy ?? 150 },
+    metas: { potion: acc_.potionStock ?? R.potion?.targetStock ?? 300, potionItem: acc_.potion ?? R.potion?.type ?? 'Great Potion', revive: R.revive?.targetStock ?? 10, ball: R.restock?.ball ?? 'Ultra Ball' } };
+}
+
+// ---- Avisos para o PokeBot.exe (balao do Windows): o host busca a fila a cada POST de metrics ----
+const avisos = [];
+const avisar = (acc, titulo, texto) => { avisos.push({ acc, idx: Object.keys(PORTS).indexOf(acc), titulo, texto, t: Date.now() }); if (avisos.length > 20) avisos.shift(); };
+
+// ---- Hunt automatica: a cada rules.hunt.auto.intervaloMin analisa cada conta logada ----
+// Se a melhor hunt render pelo menos ganhoMinPct a mais: conta em modo livre troca sozinha e avisa;
+// as outras ganham um pedido "Trocar?" no painel (Aprovar/Recusar) e um aviso do Windows.
+// A conta que voce esta olhando fica para a proxima rodada (a analise abre a ficha do pokemon no jogo).
+const ultimaAnalise = {};
+let analisando = false;
+async function huntLoop() {
+  const H = { ativo: false, intervaloMin: 30, crit: 'XP/h', ganhoMinPct: 10, ...((rules().hunt || {}).auto || {}) };
+  if (!H.ativo || analisando) return;
+  analisando = true;
+  try {
+    for (const [i, acc] of Object.keys(PORTS).entries()) {
+      if (!statusCache[acc]?.loggedIn) continue;
+      if (Date.now() - (ultimaAnalise[acc] || 0) < H.intervaloMin * 60000) continue;
+      if (metrics && metrics.foco === i && metrics.visiveis && metrics.visiveis.filter(Number).length === 1) continue; // so ela na tela: espera
+      ultimaAnalise[acc] = Date.now();
+      try {
+        const r = await actions.avaliarHunt({ acc, crit: H.crit });
+        ranks[acc] = { ...r.analise, at: Date.now() }; fs.writeFile(RANKS, JSON.stringify(ranks), () => {});
+        if (r.jaEsta || (r.ganhoPct != null && r.ganhoPct < H.ganhoMinPct)) continue;
+        const ganho = r.ganhoPct != null ? `+${r.ganhoPct}% ${H.crit}` : 'hunt atual fora do ranking';
+        if (rules().accounts?.[acc]?.freeMode) {
+          const out = await routes.irmelhor({ acc, crit: H.crit });
+          avisar(acc, `${acc}: troca de hunt`, `${out[acc]} (${ganho})`);
+        } else {
+          for (const p of Object.values(pending)) if (p.acc === acc && p.call === 'irMelhor') delete pending[p.id];
+          const desc = `Trocar de ${r.atual || '?'} para ${r.alvo}? ${ganho}`;
+          await routes.propose({ acc, desc, call: 'irMelhor', args: JSON.stringify({ crit: H.crit }) });
+          avisar(acc, `${acc}: hunt melhor`, desc + ' — aprove no painel');
+        }
+      } catch (e) { log(acc, 'analise de hunt falhou: ' + (e.message || e)); }
+    }
+  } finally { analisando = false; }
+}
+setInterval(huntLoop, 60000);
+setTimeout(huntLoop, 60000);
+
+// ---- aprovacoes: compras/vendas e qualquer acao arriscada passam por aqui ----
+const pending = {};
+let pid = 1;
+async function run(call, args, acc) {
+  const fn = actions[call];
+  if (!fn) throw new Error('acao desconhecida: ' + call);
+  // leituras nao vao para o log (so acoes que mudam algo no jogo)
+  if (!['status', 'text', 'estoque', 'eval', 'shot', 'accounts', 'mode', 'ficha', 'hunt', 'avaliarHunt', 'restock'].includes(call) || (call === 'restock' && !args.dry))
+    log(acc, call + ' ' + JSON.stringify(Object.fromEntries(Object.entries(args).filter(([k]) => k !== 'acc'))));
+  return fn(args);
+}
+
+const routes = {
+  async rules() { return rules(); },
+  async saverules(q, body) { JSON.parse(body); fs.writeFileSync(RULES, body); log('-', 'regras salvas'); return 'ok'; },
+  async overview() {
+    return { status: statusCache, pending: Object.values(pending), log: recent.slice(-40).reverse(), open: Object.keys(ctxs), mode: actions.mode() };
+  },
+  async hunts() {
+    const r = rules();
+    return Object.entries(hunts).map(([hunt, h]) => ({
+      hunt, horas: +(h.sec / 3600).toFixed(2),
+      xpPorHora: h.sec > 60 ? Math.round(h.xp / (h.sec / 3600)) : null,
+      ouroPorHora: h.sec > 60 ? Math.round(h.gold / (h.sec / 3600)) : null,
+      diasShiny: Object.entries(r.shinyDaysAvg || {}).find(([k]) => hunt.startsWith(k))?.[1] ?? null,
+    })).sort((a, b) => (b.xpPorHora || 0) - (a.xpPorHora || 0));
+  },
+  // propoe uma acao: espera aprovacao no painel (ou executa direto se a conta estiver em modo livre)
+  async propose({ acc, desc, call, args }) {
+    const a = JSON.parse(args || '{}'); a.acc = acc;
+    if (rules().accounts?.[acc]?.freeMode) return { executed: true, result: await run(call, a, acc) };
+    const id = pid++; pending[id] = { id, acc, desc, call, args: a, at: Date.now() };
+    log(acc, 'proposta #' + id + ': ' + desc);
+    return { pendingId: id };
+  },
+  async approve({ id }) {
+    const p = pending[id]; if (!p) throw new Error('nao existe');
+    delete pending[id]; return run(p.call, p.args, p.acc);
+  },
+  async reject({ id }) { delete pending[id]; log('-', 'recusada #' + id); return 'ok'; },
+  // ranking de hunts feito pelo pokeidleguide.io a partir da ficha do pokemon em campo
+  async rank({ acc }) {
+    const r = await run('hunt', { acc }, acc);
+    ranks[acc] = { ...r, at: Date.now() };
+    fs.writeFile(RANKS, JSON.stringify(ranks), () => {});
+    return r;
+  },
+  // analisa as contas logadas, uma por vez (o site e um so), e devolve o resumo da melhor hunt de cada uma
+  async rankall() {
+    const out = {};
+    for (const acc of Object.keys(PORTS)) {
+      if (!statusCache[acc]?.loggedIn) { out[acc] = { erro: 'conta nao logada' }; continue; }
+      try {
+        const r = await routes.rank({ acc });
+        out[acc] = Object.fromEntries(Object.entries(r.recomendacao).map(([k, v]) => [k, v.melhor && `${v.melhor.pokemon} Nv ${v.melhor.nivel} (${v.melhor.valor})`]));
+      } catch (e) { out[acc] = { erro: String(e.message || e) }; }
+    }
+    return out;
+  },
+  async rankings() { return ranks; },
+  async consumo({ acc }) { return consumo(acc); },
+  // poe a conta (ou todas, acc=todas) na melhor hunt do criterio; guarda a analise feita no caminho
+  async irmelhor({ acc, crit, forcar }) {
+    const contas = !acc || acc === 'todas' ? Object.keys(PORTS).filter(a => statusCache[a]?.loggedIn) : [acc];
+    const out = {};
+    for (const a of contas) {
+      try {
+        const r = await run('irMelhor', { acc: a, crit, forcar }, a);
+        ranks[a] = { ...r.analise, at: Date.now() }; fs.writeFile(RANKS, JSON.stringify(ranks), () => {});
+        const ida = r.ida || {};
+        out[a] = (ida.ficou ? `ficou onde estava (${ida.motivo}); melhor seria ${r.alvo}` : `${ida.jaEstava ? 'ja estava em' : 'foi para'} ${r.alvo}`) +
+          (r.curou ? ' · curou' : '') + (r.principal && r.principal.trocou ? ' · principal de volta: ' + r.principal.principal : '') +
+          (ida.forcado ? ` · desistiu do combate${ida.perda ? ' (' + ida.perda + ')' : ''}${ida.curou ? ' e curou' : ''}` : '');
+        log(a, 'hunt: ' + out[a]);
+      } catch (e) { out[a] = 'erro: ' + (e.message || e); log(a, 'hunt falhou: ' + out[a]); }
+    }
+    return out;
+  },
+  // recompra agora (sem esperar o intervalo); dry=1 so mostra o plano
+  async recomprar({ acc, dry }) {
+    const r = await actions.restock({ acc, dry });
+    const feitas = r.compras.filter(c => c.resultado);
+    if (feitas.length) log(acc, 'recompra: ' + feitas.map(c => `${c.qtd} ${c.item}`).join(', '));
+    ultimoRestock[acc] = Date.now();
+    return r;
+  },
+  async tickNow() { await tick(); return statusCache; },
+  // RAM/CPU medidos pelo PokeBot.exe (a cada 2 s)
+  // o POST do host recebe de volta os avisos pendentes (e a fila e esvaziada)
+  async metrics(q, body) { if (body) { metrics = JSON.parse(body); return { notificacoes: avisos.splice(0) }; } return metrics; },
+};
+
+// ---- Conector MCP por HTTP (para apps como o Grok Bot), so neste PC e com chave ----
+// Endereco: http://127.0.0.1:8787/mcp  ·  chave em config/app.json -> mcp.chave (cabecalho Authorization: Bearer <chave>
+// ou ?key=<chave> na URL). So expoe as ferramentas "seguras" (sem JavaScript livre nem clique livre).
+const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
+const { criarServidor } = require('./mcp/tools');
+function mcpCfg() {
+  const cfg = readJson(APPCFG, {});
+  if (!cfg.mcp || !cfg.mcp.chave) {
+    cfg.mcp = { ativo: true, chave: require('crypto').randomBytes(18).toString('base64url'), ...(cfg.mcp || {}) };
+    fs.writeFileSync(APPCFG, JSON.stringify(cfg, null, 2));
+  }
+  return cfg.mcp;
+}
+mcpCfg();
+const mcpCall = async (p, params = {}, body) => {
+  if (routes[p]) return routes[p](params, body);
+  if (actions[p]) return run(p, params, params.acc);
+  throw new Error('acao desconhecida: ' + p);
+};
+async function mcpHttp(req, res, u) {
+  const cfg = mcpCfg();
+  const auth = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (!cfg.ativo || (auth !== cfg.chave && u.searchParams.get('key') !== cfg.chave)) {
+    res.writeHead(401, { 'content-type': 'application/json' });
+    return res.end('{"error":"chave invalida ou conector desligado"}');
+  }
+  if (req.method !== 'POST') { res.writeHead(405, { allow: 'POST' }); return res.end(); }
+  let raw = ''; for await (const c of req) raw += c;
+  const body = raw ? JSON.parse(raw) : undefined;
+  const server = criarServidor(mcpCall, { completo: false });
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+  res.on('close', () => { transport.close(); server.close(); });
+  await server.connect(transport);
+  await transport.handleRequest(req, res, body);
+}
+
+http.createServer(async (req, res) => {
+  const u = new URL(req.url, 'http://x');
+  const name = u.pathname.slice(1);
+  if (name === 'mcp') {
+    try { return await mcpHttp(req, res, u); }
+    catch (e) { if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: String(e.message || e) })); }
+  }
+  if (name === '' || /^[\w-]+\.html$/.test(name)) { // paginas dos paineis (ui/*.html)
+    const f = path.join(__dirname, 'ui', name || 'index.html');
+    // os paineis recebem os nomes das contas daqui (window.CONTAS), em vez de te-los escritos no HTML
+    if (fs.existsSync(f)) { res.setHeader('content-type', 'text/html; charset=utf-8');
+      return res.end(fs.readFileSync(f, 'utf8').replace('<script>', `<script>window.CONTAS=${JSON.stringify(CONTAS)};</script><script>`)); }
+  }
+  res.setHeader('content-type', 'application/json; charset=utf-8');
+  const q = Object.fromEntries(u.searchParams);
+  try {
+    let body = ''; for await (const c of req) body += c;
+    let out;
+    if (routes[name]) out = await routes[name](q, body);
+    else if (actions[name]) out = await run(name, q, q.acc);
+    else { res.statusCode = 404; return res.end('{"error":"unknown"}'); }
+    res.end(JSON.stringify({ ok: true, result: out }));
+  } catch (e) { res.statusCode = 500; res.end(JSON.stringify({ ok: false, error: String(e.message || e) })); }
+}).listen(PORT, '127.0.0.1', () => { console.log('PokeBot em http://127.0.0.1:' + PORT); tick(); });

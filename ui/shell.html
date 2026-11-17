@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PokeBot</title>
+<style>
+:root{--bg:#0d0c14;--rail:#121019;--bar:#16141f;--card:#1b1828;--card2:#221e32;--line:#2c2740;--tx:#ece9f5;--mut:#8b84a6;--ac:#8b6cf6;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--blue:#60a5fa;
+  --c1:#e1505a;--c2:#e8963c;--c3:#46be78;--c4:#5a8cf0;--rw:64px;--th:46px;--pw:360px}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:var(--bg);color:var(--tx);font:12.5px/1.4 "Segoe UI",system-ui,sans-serif;overflow:hidden;user-select:none}
+button{font:inherit;color:inherit;cursor:pointer}
+/* trilho de contas */
+.rail{position:fixed;left:0;top:0;bottom:0;width:var(--rw);background:var(--rail);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:10px}
+.logo{width:34px;height:34px;margin-bottom:6px}
+.acc{position:relative;width:42px;height:42px;border-radius:12px;border:2px solid transparent;background:var(--card);font-weight:800;font-size:13px;display:grid;place-items:center;transition:.15s}
+.acc:hover{transform:translateY(-1px)}
+.acc.sel{border-color:#fff;box-shadow:0 0 0 3px rgba(139,108,246,.35)}
+.acc .st{position:absolute;right:-3px;bottom:-3px;width:12px;height:12px;border-radius:50%;border:2px solid var(--rail);background:var(--mut)}
+.acc .vis{position:absolute;left:-9px;top:50%;width:4px;height:18px;margin-top:-9px;border-radius:2px;background:#fff;opacity:0}
+.acc.on .vis{opacity:.85}
+.rail .sp{flex:1}
+.ico{width:38px;height:38px;border-radius:10px;border:0;background:none;color:var(--mut);display:grid;place-items:center}
+.ico:hover{background:var(--card);color:var(--tx)}
+/* barra do topo */
+.top{position:fixed;left:var(--rw);right:0;top:0;height:var(--th);background:var(--bar);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;padding:0 12px;white-space:nowrap;overflow:hidden}
+.brand{font-weight:800;font-size:14px}.brand b{color:var(--ac)}
+.chip{color:var(--mut)}.chip b{color:var(--tx);font-weight:600}
+.top .sp{flex:1}
+.seg{display:flex;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:2px;gap:2px}
+.seg button{border:0;background:none;color:var(--mut);padding:4px 9px;border-radius:6px;font-weight:600}
+.seg button.on{background:var(--ac);color:#fff}
+.tb{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:5px 10px;color:var(--tx)}
+.tb:hover{border-color:var(--ac)}.tb.on{border-color:var(--ac);color:#cbbcff}
+/* painel da conta */
+.panel{position:fixed;right:0;top:var(--th);bottom:0;width:var(--pw);background:var(--bar);border-left:1px solid var(--line);display:flex;flex-direction:column}
+.panel[hidden]{display:none}
+.ph{padding:12px 14px 0;display:flex;align-items:center;gap:10px}
+.badge{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-weight:800;flex:none}
+.ph .nm{flex:1;min-width:0}.ph .nm b{display:block;font-size:14px;overflow:hidden;text-overflow:ellipsis}
+.ph .nm span{color:var(--mut);font-size:11.5px}
+.tabs{display:flex;padding:10px 10px 0;border-bottom:1px solid var(--line)}
+.tabs button{flex:1;border:0;background:none;color:var(--mut);padding:6px 0 8px;border-bottom:2px solid transparent;font-weight:600}
+.tabs button.on{color:var(--tx);border-bottom-color:var(--ac)}
+.body{flex:1;overflow-y:auto;overflow-x:hidden;padding:10px;display:flex;flex-direction:column;gap:8px}
+.body::-webkit-scrollbar{width:6px}.body::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;min-width:0}
+.lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin-bottom:6px;display:flex;justify-content:space-between;gap:8px}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kpi .v{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .s{color:var(--mut);font-size:11px}
+.bar{height:5px;background:var(--card2);border-radius:3px;overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:var(--blue);transition:width .4s}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.row small{color:var(--mut)}
+.val{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+.pill{display:inline-block;font-size:10px;padding:1px 6px;border-radius:6px;font-weight:700}
+.pill.ok{background:rgba(74,222,128,.14);color:var(--ok)}.pill.w{background:rgba(251,191,36,.14);color:var(--warn)}.pill.b{background:rgba(248,113,113,.14);color:var(--bad)}
+.btn{border:0;border-radius:8px;padding:7px 10px;background:var(--ac);color:#fff;font-weight:600}
+.btn.g{background:var(--card2);color:var(--tx);border:1px solid var(--line)}
+.btn:disabled{opacity:.55;cursor:wait}.btn.sm{padding:4px 9px;font-size:11.5px}
+.mini{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.mini div{background:var(--card2);border-radius:8px;padding:6px;text-align:center}
+.mini b{display:block;font-size:14px}.mini span{color:var(--mut);font-size:10.5px}
+.segs{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--card2);border-radius:7px;padding:2px;gap:2px}
+.segs button{border:0;background:none;color:var(--mut);border-radius:5px;padding:4px 0;font-weight:600}
+.segs button.on{background:var(--ac);color:#fff}
+.best .h{font-size:15px;font-weight:700;margin-top:2px}
+.msg{color:var(--mut);font-size:11.5px}
+.empty{color:var(--mut);text-align:center;padding:12px 4px}
+textarea{width:100%;min-height:360px;resize:vertical;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:8px;font:11.5px/1.45 Consolas,monospace;padding:8px;user-select:text}
+.log div{padding:3px 0;border-bottom:1px solid var(--line);word-break:break-word;font-size:11.5px;user-select:text}
+canvas{display:block;width:100%;height:34px;margin-top:6px}
+.accrow{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.accrow:last-child{border-bottom:0}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.tip{position:fixed;left:calc(var(--rw) + 6px);background:#000c;padding:4px 8px;border-radius:6px;pointer-events:none;font-size:11.5px;display:none;z-index:9}
+/* trilho: anel de XP (conic) em volta de cada conta, nivel embaixo */
+.accw{display:flex;flex-direction:column;align-items:center;gap:2px}
+.accw small{font-size:10px;color:var(--mut);font-variant-numeric:tabular-nums}
+.ring{position:relative;width:44px;height:44px;border-radius:50%;border:0;padding:0;background:conic-gradient(var(--c) var(--p),var(--card2) 0);display:grid;place-items:center;transition:.15s}
+.ring:hover{transform:translateY(-1px)}
+.ring .in{width:35px;height:35px;border-radius:50%;background:var(--card);display:grid;place-items:center;font-weight:800;font-size:12px;color:var(--c)}
+.ring.sel{box-shadow:0 0 0 2px var(--bg),0 0 0 4px #fff}
+.ring .st{position:absolute;right:-1px;bottom:-1px;width:12px;height:12px;border-radius:50%;border:2px solid var(--rail)}
+.ring .vis{position:absolute;left:-10px;top:50%;width:4px;height:18px;margin-top:-9px;border-radius:2px;background:#fff;opacity:0}
+.ring.on .vis{opacity:.85}
+/* topo minimo: linha de acontecimentos */
+.ticker{flex:1;min-width:0;display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px 10px;overflow:hidden;cursor:pointer}
+.ticker .ev{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:opacity .25s}
+.ticker .ev.out{opacity:0}
+.pchip{border:1px solid var(--warn);background:rgba(251,191,36,.12);color:var(--warn);border-radius:8px;padding:4px 10px;font-weight:700}
+.pchip[hidden]{display:none}
+/* lista compacta da conta */
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:0 10px}
+.kv>span{padding:4px 0;border-bottom:1px solid var(--line)}
+.kv>span:nth-last-child(-n+2){border-bottom:0}
+.kv .k{color:var(--mut)}
+.kv .v{text-align:right;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* atual x melhor */
+.cmp{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:6px;align-items:stretch}
+.cmp .box{background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:7px;min-width:0}
+.cmp .box.best{border-color:var(--ok)}
+.cmp .box small{display:block;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut)}
+.cmp .box b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmp .arr{align-self:center;color:var(--ok);font-weight:800}
+/* estoque com previsao */
+.stk{display:flex;flex-direction:column;gap:3px;padding:5px 0}
+.stk .top2{display:flex;justify-content:space-between;gap:8px}
+.stk .bar{position:relative;height:7px;margin-top:0}
+.stk .min{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--tx);opacity:.6}
+/* log com filtros */
+.fl{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
+.fl button{border:1px solid var(--line);background:var(--card2);color:var(--mut);border-radius:6px;padding:3px 8px;font-weight:600;font-size:11.5px}
+.fl button.on{background:var(--ac);border-color:var(--ac);color:#fff}
+.lg{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:6px;align-items:baseline;padding:4px 0;border-bottom:1px solid var(--line);font-size:11.5px;user-select:text}
+.lg:last-child{border-bottom:0}
+.lg .tp{font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;letter-spacing:.04em}
+.tp.compra{background:rgba(74,222,128,.14);color:var(--ok)}.tp.hunt{background:rgba(96,165,250,.14);color:var(--blue)}.tp.erro{background:rgba(248,113,113,.14);color:var(--bad)}.tp.outro{background:var(--card2);color:var(--mut)}
+.lg .tx{word-break:break-word}.lg .tx.erro{color:var(--bad)}
+/* avisos no canto (embaixo do painel) */
+.toasts{position:fixed;right:10px;bottom:10px;width:calc(var(--pw) - 20px);display:flex;flex-direction:column;gap:8px;z-index:20}
+.toast{background:var(--card);border:1px solid var(--ac);border-radius:10px;padding:10px;box-shadow:0 10px 28px #000a;display:flex;flex-direction:column;gap:6px;animation:tin .2s ease-out}
+.toast .tt{display:flex;align-items:center;gap:8px}
+.toast .tt b{flex:1;min-width:0}
+.toast .x{border:0;background:none;color:var(--mut);font-size:14px;padding:0 4px}
+.toast .ac{display:flex;gap:6px}
+@keyframes tin{from{transform:translateY(8px);opacity:0}}
+@media (prefers-reduced-motion:reduce){.toast{animation:none}.ticker .ev{transition:none}}
+</style></head><body>
+<nav class="rail" id="rail">
+  <svg class="logo" viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="#242034" stroke="#0d0c14" stroke-width="3"/><path d="M2 20a18 18 0 0 1 36 0z" fill="#8b6cf6"/><path d="M2 20h36" stroke="#0d0c14" stroke-width="3"/><circle cx="20" cy="20" r="6" fill="#0d0c14"/><circle cx="20" cy="20" r="3.4" fill="#ece9f5"/></svg>
+  <div id="accs" style="display:flex;flex-direction:column;gap:12px"></div>
+  <div class="sp"></div>
+  <button class="ico" title="Recarregar todas as contas" onclick="send('reloadall')">⟳</button>
+  <button class="ico" title="Ajustes (regras)" onclick="openTab('regras')">⚙</button>
+</nav>
+<div class="tip" id="tip"></div>
+<header class="top">
+  <span class="brand">Poke<b>Bot</b></span>
+  <div class="ticker" id="ticker" title="Últimas ações do robô (clique para abrir o log)"><span class="ev" id="tickEv"><span class="msg">sem ações ainda</span></span></div>
+  <button class="pchip" id="pchip" hidden title="Pedidos esperando sua aprovação">0 pendentes</button>
+  <div class="seg" id="telas" title="Quantas contas ver ao mesmo tempo (Ctrl+1…4 = só uma, Ctrl+0 = as 4)"></div>
+  <div class="seg"><button onclick="send('zoom-')" title="Menos zoom">−</button><button id="zoomv" disabled style="cursor:default">–</button><button onclick="send('zoom+')" title="Mais zoom">+</button></div>
+  <button class="tb" id="bPainel" onclick="send('painel')" title="Mostrar/esconder o painel da conta (F3)">Painel</button>
+  <button class="tb" onclick="send('cheia')" title="Só as contas, sem moldura (F11; Esc volta)">Tela cheia</button>
+</header>
+<aside class="panel" id="panel">
+  <div class="ph"><div class="badge" id="pBadge">C1</div><div class="nm"><b id="pNome">–</b><span id="pSub">–</span></div>
+    <button class="btn g sm" onclick="send('home:'+sel)" title="Voltar para pokeidle.io">Jogo</button><button class="btn g sm" onclick="send('reload:'+sel)" title="Recarregar">⟳</button></div>
+  <div class="tabs" id="tabs"><button data-t="conta" class="on">Conta</button><button data-t="hunts">Hunts</button><button data-t="sistema">Sistema</button><button data-t="regras">Regras</button><button data-t="log">Log</button></div>
+  <div class="body" id="body"></div>
+</aside>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script>
+const NAMES=window.CONTAS||['conta1','conta2','conta3','conta4'],COR=['var(--c1)','var(--c2)','var(--c3)','var(--c4)'];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=n=>n==null?'–':Number(n).toLocaleString('pt-BR');
+const curto=n=>n==null?'–':n>=1e6?(n/1e6).toLocaleString('pt-BR',{maximumFractionDigits:1})+' mi':n>=1e4?(n/1e3).toLocaleString('pt-BR',{maximumFractionDigits:1})+' mil':fmt(n);
+const gb=mb=>mb==null?'–':mb>=1024?(mb/1024).toLocaleString('pt-BR',{maximumFractionDigits:1})+' GB':Math.round(mb)+' MB';
+const api=async p=>{const r=await fetch('/'+p);const j=await r.json();if(!j.ok)throw new Error(j.error);return j.result};
+const wv=window.chrome&&window.chrome.webview;const send=m=>{if(wv)wv.postMessage(m)};
+let sel=0,telas=4,painel=true,zoom=null,tab='conta',crit=localStorage.getItem('crit')||'XP/h';
+let status={},metrics=null,ranks={},logs=[],estoque={},inicio=Date.now(),hist=[];
+const busy={};
+let pend=[],nPoll=0; // pedidos de aprovacao (overview.pending)
+let consumos={},logF='tudo';
+
+// ---------- trilho + topo ----------
+function drawRail(){
+  // cada conta: anel que enche com o XP do nivel, bolinha de status, nivel embaixo
+  $('#accs').innerHTML=NAMES.map((n,i)=>{const s=status[n]||{};const c=s.error?'var(--bad)':s.loggedIn?'var(--ok)':'var(--warn)';
+    const vis=metrics&&metrics.visiveis?metrics.visiveis[i]:1,p=s.xpMax?Math.round(100*s.xp/s.xpMax):0;
+    return `<div class="accw"><button class="ring ${i===sel?'sel':''} ${vis?'on':''}" style="--c:${COR[i]};--p:${p}%" data-i="${i}" data-n="${n}" aria-label="${n}, ${p}% do nível"><span class="in">C${i+1}</span><span class="vis"></span><span class="st" style="background:${c}"></span></button><small>${s.level?'Nv '+s.level:'–'}</small></div>`}).join('');
+  $('#telas').innerHTML=[1,2,3,4,5].map(n=>`<button class="${n===telas?'on':''}" onclick="send('telas:${n}')" title="${n===5?'Uma grande e as outras 3 pequenas':n===1?'Só a selecionada':n+' contas lado a lado'}">${n===5?'1+3':n+(n===1?' tela':' telas')}</button>`).join('');
+  $('#bPainel').classList.toggle('on',painel);
+  $('#zoomv').textContent=zoom?Math.round(zoom*100)+'%':'–';
+  const pc=$('#pchip');pc.hidden=!pend.length;pc.textContent=pend.length+(pend.length===1?' pendente':' pendentes');
+}
+$('#accs').addEventListener('click',e=>{const b=e.target.closest('.ring');if(b)send('select:'+b.dataset.i)});
+$('#accs').addEventListener('mouseover',e=>{const b=e.target.closest('.ring');const t=$('#tip');if(!b){t.style.display='none';return}
+  const s=status[b.dataset.n]||{};t.textContent=b.dataset.n+(s.loggedIn?` · Nv ${s.level} · ${curto(s.xpPorHora)} XP/h · ${s.hunt?s.hunt.replace(' · nível ',' Nv '):'parado'}`:'');
+  t.style.top=(b.getBoundingClientRect().top+12)+'px';t.style.display='block'});
+$('#accs').addEventListener('mouseleave',()=>$('#tip').style.display='none');
+
+// ---------- linha de acontecimentos (topo) ----------
+const IDX=n=>NAMES.indexOf(n);
+function tipoLog(w){return /falhou|erro|nao |não /i.test(w)?'erro':/recompra|compr/i.test(w)?'compra':/hunt|irMelhor|cacar|proposta|trocar|analise/i.test(w)?'hunt':'outro'}
+function hora(t){return new Date(t).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}
+let tickI=0;
+function ticker(){const ev=logs.filter(e=>!/^(openall|economia)/.test(e.what)).slice(0,6);const el=$('#tickEv');
+  if(!ev.length){el.innerHTML='<span class="msg">sem ações ainda</span>';return}
+  const e=ev[tickI%ev.length];tickI++;el.classList.add('out');
+  setTimeout(()=>{const i=IDX(e.acc);el.innerHTML=`<span class="msg">${hora(e.t)}</span> ${i>=0?`<b style="color:${COR[i]}">C${i+1}</b>`:''} <span style="${tipoLog(e.what)==='erro'?'color:var(--bad)':''}">${esc(e.what.replace(/^hunt: /,''))}</span>`;el.classList.remove('out')},200)}
+setInterval(ticker,5000);
+$('#ticker').onclick=()=>openTab('log');
+$('#pchip').onclick=()=>{toastsVistos.clear();drawToasts()};
+
+// ---------- painel ----------
+$('#tabs').onclick=e=>{const b=e.target.closest('button');if(b)openTab(b.dataset.t)};
+function openTab(t){tab=t;document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));if(!painel)send('painel');drawPanel(true)}
+function risk(o){if(!o)return['ok',''];if(o.umGolpe)return['b','☠ 1 golpe'];const n=o.riscoPct||0;return[n>=40?'b':n>=15?'w':'ok','risco '+n+'%']}
+function huntLinha(o,i){if(!o)return'';const [k,l]=risk(o);
+  return `<div class="row"><span><b>${esc(o.pokemon)} Nv ${o.nivel}</b><small>${esc(o.regiao||'')} · ${fmt(o.abatesH)} abates/h · <span class="pill ${k}">${l}</span></small></span>
+   <span class="val">${esc((o.valor||'').replace(' capturas/h',''))}<br><button class="btn sm" data-ir="${esc(o.pokemon)}|${o.nivel}">Ir caçar</button></span></div>`}
+function drawPanel(force){
+  const n=NAMES[sel],s=status[n]||{},m=metrics&&metrics.contas?metrics.contas[sel]:null,r=ranks[n];
+  $('#pBadge').textContent='C'+(sel+1);$('#pBadge').style.background=`color-mix(in srgb, ${COR[sel]} 30%, var(--card))`;$('#pBadge').style.color=COR[sel];
+  $('#pNome').textContent=n;$('#pSub').textContent=s.error?'sem conexão':!s.loggedIn?'aguardando login':`Nv ${s.level} · ${s.hunt?s.hunt.replace(' · nível ',' Nv '):'parado'}`;
+  const body=$('#body');if(!force&&document.activeElement&&body.contains(document.activeElement)&&document.activeElement.tagName==='TEXTAREA')return;
+  let h='';
+  if(tab==='conta'){
+    // lista compacta: rotulo a esquerda, valor a direita
+    const xp=s.xpMax?100*s.xp/s.xpMax:0;
+    const kv=(k,v)=>`<span class="k">${k}</span><span class="v">${v}</span>`;
+    h+=`<div class="card"><div class="kv">
+      ${kv('Ouro',fmt(s.gold))}${kv('XP/h',fmt(s.xpPorHora))}${kv('Lucro/h',fmt(s.lucroPorHora))}${kv('Abates/h',fmt(s.abatesPorHora))}
+      ${kv('XP do nível',`${fmt(s.xp)} / ${fmt(s.xpMax)} · ${xp.toFixed(0)}%`)}${kv('Hunt',esc(s.hunt?s.hunt.replace(' · nível ',' Nv '):'parado'))}
+      ${s.event?kv('Evento',esc(s.event.replace('🎉 ',''))):''}${kv('RAM · CPU',m?gb(m.ramMB)+' · '+m.cpu.toFixed(1)+'%':'–')}
+      ${kv('Economia',s.economia?'ligada (fora de foco)':'desligada')}</div></div>`;
+    // atual x melhor
+    const rec=r&&r.recomendacao&&r.recomendacao[crit],mb=rec&&rec.melhor,at=atualNoRanking(r,crit);
+    const g=mb&&at&&num(at.valor)?Math.round((num(mb.valor)/num(at.valor)-1)*1000)/10:null;
+    const jaEsta=mb&&at&&mb.pokemon===at.pokemon&&mb.nivel===at.nivel;
+    h+=`<div class="card best"><div class="lbl"><span>Atual × melhor</span><span>${r?'análise '+hora(r.at):''}</span></div>
+      <div class="segs" id="crit">${['XP/h','Ouro/h','Shiny/h'].map(c=>`<button class="${c===crit?'on':''}" data-c="${c}">${c.replace('/h','')}</button>`).join('')}</div>
+      ${!r?'<div class="empty">Sem análise ainda.</div>':!mb?'<div class="empty">Nenhuma hunt segura no top 15.</div>':`
+      <div class="cmp" style="margin-top:8px"><div class="box"><small>Atual</small><b>${esc(r.huntAtual?r.huntAtual.replace(' · nível ',' Nv '):'parado')}</b><span class="msg">${at?esc(at.valor):'fora do top 15'}</span></div>
+        <span class="arr">→</span>
+        <div class="box best"><small>Melhor</small><b>${esc(mb.pokemon)} Nv ${mb.nivel}</b><span class="msg">${esc(mb.valor)} · <span class="pill ${risk(mb)[0]}">${risk(mb)[1]}</span></span></div></div>
+      <div class="msg" style="margin-top:6px">${jaEsta?'<span class="pill ok">Você já está na melhor hunt</span>':g!=null?`<span class="pill ${g>=10?'ok':'w'}">${g>0?'+':''}${g}% ${crit}</span> trocar em combate custa 10% do XP do nível (só força a partir de +5%)`:'A hunt atual não está no top 15 da análise.'}</div>`}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px"><button class="btn" id="bMelhor" ${jaEsta?'disabled':''} title="Cura se precisar, põe o principal em campo e vai para a melhor hunt">Trocar</button><button class="btn g" id="bAnal">Analisar de novo</button></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px"><button class="btn g sm" id="bMelhor4">Todas na melhor</button><button class="btn g sm" id="bAnal4">Analisar as 4</button></div>
+      <div class="msg" id="mAnal" style="margin-top:6px">${esc(busy.anal||'')}</div></div>`;
+    // estoque: barra ate a meta, risco do minimo, previsao pelo consumo medido
+    const e=estoque[n],cs=consumos[n];
+    h+=`<div class="card"><div class="lbl"><span>Estoque</span><span>${e?hora(e.at):''}</span></div>${e?estoqueBarras(e,cs):'<div class="empty">lendo…</div>'}
+      <button class="btn g" id="bRec" style="width:100%;margin-top:8px">Recomprar agora</button><div class="msg" id="mRec" style="margin-top:6px">${esc(busy.rec||'')}</div></div>`;
+  }else if(tab==='hunts'){
+    if(!r)h='<div class="card"><div class="empty">Sem análise desta conta. Abra a aba Conta e clique em Analisar.</div></div>';
+    else h=`<div class="card"><div class="segs" id="crit">${['XP/h','Ouro/h','Shiny/h'].map(c=>`<button class="${c===crit?'on':''}" data-c="${c}">${c.replace('/h','')}</button>`).join('')}</div></div>
+      <div class="card"><div class="lbl"><span>${esc(r.pokemon)} · treinador Nv ${r.nivelTreinador}</span><span>top 15</span></div>${(r.ranking[crit]||[]).map(c=>huntLinha(rowObj(c))).join('')}</div>`;
+  }else if(tab==='sistema'){
+    const sy=metrics&&metrics.sistema;
+    h=`<div class="card"><div class="lbl"><span>Computador</span><span>${sy?sy.nucleos+' núcleos':''}</span></div><div class="kpis">
+      <div class="kpi"><div class="v">${sy?sy.cpu.toFixed(0)+'%':'–'}</div><div class="s">CPU total</div></div><div class="kpi"><div class="v">${sy?gb(sy.ramUsadaMB):'–'}</div><div class="s">RAM de ${sy?gb(sy.ramTotalMB):'–'}</div></div></div>
+      <div class="bar"><i style="width:${sy?100*sy.ramUsadaMB/sy.ramTotalMB:0}%;background:var(--ac)"></i></div><canvas id="spark"></canvas></div>
+      <div class="card"><div class="lbl"><span>Contas</span><span>RAM · CPU</span></div>${NAMES.map((nn,i)=>{const mm=metrics&&metrics.contas?metrics.contas[i]:null,ss=status[nn]||{};
+        return `<div class="accrow" data-sel="${i}"><span class="dot" style="background:${COR[i]}"></span><span><b>${nn}</b><br><small class="msg">${ss.loggedIn?'Nv '+ss.level+' · '+curto(ss.xpPorHora)+' XP/h':'–'}</small></span><span class="val">${mm?gb(mm.ramMB):'–'}<br><small class="msg">${mm?mm.cpu.toFixed(1)+'%':''}</small></span></div>`}).join('')}
+      <div class="row"><span><b>App (painel + servidor)</b></span><span class="val">${metrics?gb(metrics.app.ramMB)+' · '+metrics.app.cpu.toFixed(1)+'%':'–'}</span></div></div>`;
+  }else if(tab==='regras'){
+    h=`<div class="card"><div class="lbl"><span>config/rules.json</span></div><textarea id="rules" spellcheck="false"></textarea>
+      <button class="btn" id="bSave" style="width:100%;margin-top:8px">Salvar regras</button><div class="msg" id="mSave"></div></div>`;
+  }else if(tab==='log'){
+    const tipos=logs.map(e=>tipoLog(e.what)),cont=t=>tipos.filter(x=>x===t).length;
+    const lista=logs.filter((e,i)=>logF==='tudo'||tipos[i]===logF);
+    h=`<div class="card"><div class="fl" id="logF">${[['tudo','Tudo',logs.length],['compra','Compras',cont('compra')],['hunt','Hunts',cont('hunt')],['erro','Erros',cont('erro')]].map(([k,l,c])=>`<button class="${logF===k?'on':''}" data-f="${k}">${l} ${c}</button>`).join('')}</div>
+      ${lista.length?lista.map(e=>{const t=tipoLog(e.what),i=IDX(e.acc);return `<div class="lg"><span class="msg">${new Date(e.t).toLocaleTimeString('pt-BR')}</span><span class="tp ${t}">${{compra:'COMPRA',hunt:'HUNT',erro:'ERRO',outro:'AÇÃO'}[t]}</span><span class="tx ${t==='erro'?'erro':''}">${i>=0?`<b style="color:${COR[i]}">C${i+1}</b> `:''}${esc(e.what)}</span></div>`}).join(''):'<div class="empty">Nada neste filtro.</div>'}</div>`;
+  }
+  body.innerHTML=h;
+  if(tab==='regras')api('rules').then(x=>{$('#rules').value=JSON.stringify(x,null,2)}).catch(()=>{});
+  if(tab==='sistema')spark();
+}
+function sumK(o,re){return Object.entries(o||{}).filter(([k])=>re.test(k)).reduce((a,[,v])=>a+v,0)}
+// "584,1 mil" / "1,2 mi" / "146.500" -> numero
+function num(v){const s=String(v||'');const n=parseFloat(s.replace(/\./g,'').replace(',','.').replace(/[^\d.]/g,''));if(isNaN(n))return null;return /\bmi\b/.test(s)?n*1e6:/mil/.test(s)?n*1e3:n}
+function atualNoRanking(r,c){const a=r&&(r.huntAtual||'').match(/^(.*) · nível (\d+)$/);if(!a)return null;
+  return (r.ranking[c]||[]).map(rowObj).find(o=>o.pokemon===a[1]&&o.nivel===+a[2])||null}
+function dura(h){return h==null?null:h<1?'acaba em menos de 1 h':h<24?'acaba em ~'+Math.round(h)+' h':'dura ~'+Math.round(h/24)+(h<48?' dia':' dias')}
+function estoqueBarras(e,cs){
+  const mt=(cs&&cs.metas)||{potion:300,potionItem:'Great Potion',revive:10,ball:'Ultra Ball'},mn=(cs&&cs.minimos)||{potion:100,revive:5,ball:150};
+  const pot=Object.entries(e.itens).filter(([k,v])=>/Potion/.test(k)&&v>0).sort((a,b)=>b[1]-a[1])[0];
+  const potItem=pot?pot[0]:mt.potionItem;
+  const linhas=[[potItem,mt.potion,mn.potion],['Revive',mt.revive,mn.revive]];
+  if(e.lancaBola)linhas.push([mt.ball,Math.max(mn.ball*4,e.itens[mt.ball]||0),mn.ball]);
+  return linhas.map(([item,meta,min])=>{const tem=e.itens[item]||0,top=Math.max(meta,tem,1),baixo=tem<min;
+    const c=cs&&cs.itens&&cs.itens[item];const prev=!cs||cs.amostras<2?'medindo o consumo…':c&&c.porHora>0?dura(c.horasRestantes)+' · gasta '+fmt(Math.round(c.porHora))+'/h':'sem consumo na última '+(cs.minutos>=60?'hora':cs.minutos+' min');
+    return `<div class="stk"><div class="top2"><b>${esc(item)}</b><span class="msg">${fmt(tem)} · mín ${fmt(min)}</span></div>
+      <div class="bar"><i style="width:${Math.min(100,100*tem/top)}%;background:${baixo?'var(--bad)':c&&c.horasRestantes!=null&&c.horasRestantes<3?'var(--warn)':'var(--ok)'}"></i><span class="min" style="left:${Math.min(100,100*min/top)}%"></span></div>
+      <span class="msg" style="${baixo?'color:var(--bad)':c&&c.horasRestantes!=null&&c.horasRestantes<3?'color:var(--warn)':''}">${baixo?'abaixo do mínimo · ':''}${prev}</span></div>`}).join('')
+    +`<div class="msg">${e.lancaBola?'Lança bola sozinho (VIP)':'Sem lançar bola'} · recompra automática a cada 10 min</div>`}
+
+// ---------- avisos no canto: um cartao por pedido de aprovacao novo ----------
+const toastsVistos=new Set(),toastsFechados=new Set(),toastHora={};
+function drawToasts(){
+  const ids=new Set(pend.map(p=>String(p.id)));
+  for(const p of pend){const id=String(p.id);if(!toastsVistos.has(id)){toastsVistos.add(id);toastHora[id]=Date.now();toastsFechados.delete(id)}}
+  // some sozinho depois de 2 min; continua no botao "N pendentes" do topo
+  const vis=pend.filter(p=>!toastsFechados.has(String(p.id))&&Date.now()-(toastHora[p.id]||0)<120000).slice(-3);
+  $('#toasts').style.display=painel?'flex':'none';
+  $('#toasts').innerHTML=vis.map(p=>{const i=IDX(p.acc);return `<div class="toast"><div class="tt">${i>=0?`<b style="color:${COR[i]};flex:none">C${i+1}</b>`:''}<b>${/^Trocar/.test(p.desc)?'Trocar de hunt?':'Aprovar ação?'}</b><button class="x" data-tx="${p.id}" title="Fechar (continua em pendentes no topo)">✕</button></div>
+    <span class="msg">${esc(p.desc)}</span><div class="ac"><button class="btn sm" data-pend="approve|${p.id}">Aprovar</button><button class="btn g sm" data-pend="reject|${p.id}">Recusar</button></div></div>`}).join('')
+    +(busy.pend?`<div class="toast" style="border-color:var(--line)"><span class="msg">${esc(busy.pend)}</span></div>`:'');
+  for(const id of [...toastsVistos])if(!ids.has(id)){toastsVistos.delete(id);delete toastHora[id]}
+}
+$('#toasts').addEventListener('click',async e=>{
+  const x=e.target.closest('[data-tx]');if(x){toastsFechados.add(x.dataset.tx);drawToasts();return}
+  const pd=e.target.closest('[data-pend]');if(!pd)return;const [acao,id]=pd.dataset.pend.split('|');const p=pend.find(q=>String(q.id)===id);
+  busy.pend=acao==='approve'?'Trocando '+(p?p.acc:'')+' de hunt (pode levar até 1 min)…':'Recusado.';pend=pend.filter(q=>String(q.id)!==id);drawToasts();drawRail();
+  try{const r=await api(acao+'?id='+id);if(acao==='approve'&&r){busy.pend=(r.alvo?'Foi para '+r.alvo:'Feito')+(r.ida&&r.ida.ficou?' — ficou onde estava: '+r.ida.motivo:'');ranks=await api('rankings')}}
+  catch(x){busy.pend='Erro: '+x.message}drawToasts();setTimeout(()=>{busy.pend='';drawToasts()},8000);poll()});
+function rowObj(c){const m=(c[1]||'').match(/^(.*?) Nv (\d+)\s+(\S+)\s*(.*)$/)||[0,c[1],null,'',''];const rt=c[5]||'';
+  return{pokemon:m[1],nivel:m[2]?+m[2]:null,regiao:m[3],valor:c[2],abatesH:+(String(c[3]||'').replace(/\D/g,''))||null,umGolpe:/hit/i.test(rt),riscoPct:/hit/i.test(rt)?100:(parseInt(rt.replace(/\D/g,''))||0)}}
+function spark(){const c=$('#spark');if(!c)return;const r=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;c.width=w*r;c.height=h*r;const g=c.getContext('2d');g.scale(r,r);
+  if(hist.length<2)return;const st=w/59;g.beginPath();hist.forEach((v,i)=>{const x=w-(hist.length-1-i)*st,y=h-2-Math.min(v,100)/100*(h-4);i?g.lineTo(x,y):g.moveTo(x,y)});g.strokeStyle='#8b6cf6';g.lineWidth=1.5;g.stroke()}
+
+// cliques dentro do painel
+$('#body').addEventListener('click',async e=>{
+  const c=e.target.closest('[data-c]');if(c){crit=c.dataset.c;try{localStorage.setItem('crit',crit)}catch{};drawPanel(true);return}
+  const f=e.target.closest('[data-f]');if(f){logF=f.dataset.f;drawPanel(true);return}
+  const a=e.target.closest('[data-sel]');if(a){send('select:'+a.dataset.sel);return}
+  const pd=e.target.closest('[data-pend]');if(pd){const [acao,id]=pd.dataset.pend.split('|');const p=pend.find(x=>String(x.id)===id);
+    busy.pend=acao==='approve'?'Trocando '+(p?p.acc:'')+' de hunt (pode levar até 1 min)…':'Recusado.';pend=pend.filter(x=>String(x.id)!==id);drawPanel(true);
+    try{const r=await api(acao+'?id='+id);if(acao==='approve'&&r){busy.pend=(r.alvo?'Foi para '+r.alvo:'Feito')+(r.ida&&r.ida.ficou?' — ficou onde estava: '+r.ida.motivo:'');ranks=await api('rankings')}}
+    catch(x){busy.pend='Erro: '+x.message}poll();return}
+  const ir=e.target.closest('[data-ir]');if(ir){const [nome,nv]=ir.dataset.ir.split('|');ir.disabled=true;ir.textContent='indo…';
+    busy.anal='Trocando para '+nome+' Nv '+nv+' (o jogo só aceita fora de combate; pode levar alguns segundos)…';drawPanel(true);
+    try{await api(`cacar?acc=${NAMES[sel]}&nome=${encodeURIComponent(nome)}&nivel=${nv}`);busy.anal='Caçando '+nome+' Nv '+nv+'.'}catch(x){busy.anal='Não trocou: '+x.message}drawPanel(true);return}
+  if(e.target.id==='bMelhor'||e.target.id==='bMelhor4'){const all=e.target.id==='bMelhor4';busy.anal=all?'Colocando as 4 contas na melhor hunt (~1–2 min)…':'Indo para a melhor hunt…';drawPanel(true);
+    try{const r=await api(`irmelhor?crit=${encodeURIComponent(crit)}&acc=${all?'todas':NAMES[sel]}`);ranks=await api('rankings');
+      busy.anal=Object.entries(r).map(([k,v])=>(all?k+': ':'')+v).join(' · ')}catch(x){busy.anal='Erro: '+x.message}drawPanel(true);return}
+  if(e.target.id==='bAnal'||e.target.id==='bAnal4'){const all=e.target.id==='bAnal4';busy.anal=all?'Analisando as 4 contas (~30 s)…':'Analisando…';drawPanel(true);
+    try{await api(all?'rankall':'rank?acc='+NAMES[sel]);ranks=await api('rankings');busy.anal='Pronto.'}catch(x){busy.anal='Erro: '+x.message}drawPanel(true);return}
+  if(e.target.id==='bRec'){busy.rec='Conferindo estoque e comprando o que falta…';drawPanel(true);
+    try{const r=await api('recomprar?acc='+NAMES[sel]);const f=r.compras.filter(c=>c.resultado);busy.rec=f.length?'Comprado: '+f.map(c=>c.qtd+' '+c.item).join(', ')+'.':'Nada a comprar: estoque acima do mínimo.';loadEstoque(true)}catch(x){busy.rec='Erro: '+x.message}drawPanel(true);return}
+  if(e.target.id==='bSave'){const v=$('#rules').value;try{JSON.parse(v)}catch{$('#mSave').textContent='JSON inválido — nada salvo.';return}
+    await fetch('/saverules',{method:'POST',body:v});$('#mSave').textContent='Salvo.';return}
+});
+
+// ---------- dados ----------
+function onMsg(x){
+  if(x.tipo==='estado'){const mudou=x.sel!==sel;sel=x.sel;telas=x.telas;painel=x.painel;zoom=x.zoom;$('#panel').hidden=!painel||x.cheia;drawRail();if(mudou){loadEstoque(true)}drawPanel(mudou);return}
+  if(x.contas){metrics=x;hist.push(x.sistema.cpu);if(hist.length>60)hist.shift();
+    if(typeof x.foco==='number'&&x.foco!==sel){sel=x.foco}drawRail();if(tab==='sistema'||tab==='conta')drawPanel()}
+}
+if(wv){wv.addEventListener('message',e=>{try{onMsg(JSON.parse(e.data))}catch{}});send('estado')}
+async function poll(){try{const o=await api('overview');status=o.status||{};logs=o.log||[];pend=o.pending||[];
+  if(++nPoll%10===0)api('rankings').then(r=>{ranks=r}).catch(()=>{});if(nPoll===1)ticker();drawRail();drawToasts();if(tab!=='regras')drawPanel()}catch{}}
+async function loadEstoque(force){const n=NAMES[sel];if(!force&&estoque[n]&&Date.now()-estoque[n].at<20000)return;
+  try{const [e,c]=await Promise.all([api('estoque?acc='+n),api('consumo?acc='+n).catch(()=>null)]);estoque[n]={...e,at:Date.now()};if(c)consumos[n]=c;if(tab==='conta')drawPanel()}catch{}}
+api('rankings').then(r=>{ranks=r;drawPanel(true)}).catch(()=>{});
+poll();setInterval(poll,3000);setInterval(()=>loadEstoque(false),20000);loadEstoque(true);drawRail();drawPanel(true);
+addEventListener('keydown',e=>{if(e.key==='F11'){e.preventDefault();send('cheia')}if(e.key==='F3'){e.preventDefault();send('painel')}});
+</script></body></html>

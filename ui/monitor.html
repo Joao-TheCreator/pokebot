@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Monitor</title>
+<style>
+:root{--bg:#110f18;--card:#1c1928;--card2:#231f33;--line:#302b44;--tx:#ece9f5;--mut:#8f88aa;--ac:#8b6cf6;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--blue:#60a5fa}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:var(--bg);color:var(--tx);font:12.5px/1.35 "Segoe UI",system-ui,sans-serif;overflow:hidden}
+body{display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
+header b{font-size:13px;letter-spacing:.02em;flex:1}
+.live{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(74,222,128,.6);animation:p 2s infinite}
+.live.off{background:var(--mut);animation:none}
+@keyframes p{70%{box-shadow:0 0 0 6px rgba(74,222,128,0)}100%{box-shadow:0 0 0 0 rgba(74,222,128,0)}}
+main{flex:1;overflow-y:auto;overflow-x:hidden;padding:10px;display:flex;flex-direction:column;gap:8px}
+main::-webkit-scrollbar{width:6px}main::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px}
+.lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin-bottom:6px;display:flex;justify-content:space-between}
+.big{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kpi .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.kpi .s{color:var(--mut);font-size:11px}
+canvas{display:block;width:100%;height:30px;margin-top:6px}
+.bar{height:5px;background:var(--card2);border-radius:3px;overflow:hidden;margin-top:4px}
+.bar i{display:block;height:100%;background:var(--ac);border-radius:3px;transition:width .4s}
+.acc{border-left:3px solid transparent;cursor:default}
+.acc.foco{border-left-color:var(--ac);background:var(--card2)}
+.acc .top{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.acc .nm{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--mut);flex:none}
+.st{color:var(--mut);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st b{color:var(--tx);font-weight:500}
+.xp{height:3px;background:var(--card2);border-radius:2px;margin:5px 0 7px;overflow:hidden}.xp i{display:block;height:100%;background:var(--blue)}
+.res{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-variant-numeric:tabular-nums}
+.res span{color:var(--mut);font-size:10.5px}
+.btns{display:flex;gap:4px;margin-top:8px}
+button{flex:1;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:4px 0;font:inherit;font-size:11.5px;cursor:pointer}
+button:hover{border-color:var(--ac)}button.pri{background:var(--ac);border-color:var(--ac);color:#fff}
+footer{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--line)}
+.hint{color:var(--mut);font-size:10.5px;text-align:center;padding:2px 0 0}
+</style></head><body>
+<header><span class="live off" id="live"></span><b>Monitor</b><span class="st" id="when">aguardando…</span></header>
+<main>
+  <section class="card">
+    <div class="lbl"><span>Computador</span><span id="cores"></span></div>
+    <div class="big">
+      <div class="kpi"><div class="v" id="cpuSys">–</div><div class="s">CPU total</div></div>
+      <div class="kpi"><div class="v" id="ramSys">–</div><div class="s" id="ramSysS">RAM</div></div>
+    </div>
+    <div class="bar"><i id="ramSysBar" style="width:0"></i></div>
+    <canvas id="sparkSys"></canvas>
+  </section>
+  <section class="card">
+    <div class="lbl"><span>PokeBot (4 contas + app)</span></div>
+    <div class="big">
+      <div class="kpi"><div class="v" id="cpuBot">–</div><div class="s">CPU</div></div>
+      <div class="kpi"><div class="v" id="ramBot">–</div><div class="s">RAM</div></div>
+    </div>
+    <canvas id="sparkBot"></canvas>
+  </section>
+  <div id="accs"></div>
+</main>
+<footer><button onclick="send('grid')" title="Ctrl+0">Grade</button><button onclick="send('left')" title="F2">Ferramentas</button></footer>
+<script>
+const NAMES=window.CONTAS||['conta1','conta2','conta3','conta4'];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=n=>n==null?'–':Number(n).toLocaleString('pt-BR');
+const gb=mb=>mb>=1024?(mb/1024).toLocaleString('pt-BR',{maximumFractionDigits:1})+' GB':Math.round(mb)+' MB';
+const wv=window.chrome&&window.chrome.webview;
+const send=m=>{if(wv)wv.postMessage(m)};
+const hist={sys:[],bot:[]};let status={},m=null,lastMsg=0;
+
+function spark(id,arr,color){const c=$(id),r=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;
+  c.width=w*r;c.height=h*r;const g=c.getContext('2d');g.scale(r,r);g.clearRect(0,0,w,h);
+  if(arr.length<2)return;const mx=100,step=w/59;g.beginPath();
+  arr.forEach((v,i)=>{const x=w-(arr.length-1-i)*step,y=h-2-(Math.min(v,mx)/mx)*(h-4);i?g.lineTo(x,y):g.moveTo(x,y)});
+  g.strokeStyle=color;g.lineWidth=1.5;g.stroke();g.lineTo(w,h);g.lineTo(w-(arr.length-1)*step,h);g.closePath();g.globalAlpha=.15;g.fillStyle=color;g.fill()}
+
+function render(){
+  if(m){const s=m.sistema;$('#cpuSys').textContent=s.cpu.toFixed(0)+'%';$('#ramSys').textContent=gb(s.ramUsadaMB);
+    $('#ramSysS').textContent='RAM de '+gb(s.ramTotalMB);$('#ramSysBar').style.width=(100*s.ramUsadaMB/s.ramTotalMB)+'%';
+    $('#cores').textContent=s.nucleos+' núcleos';
+    const tot=m.contas.reduce((a,c)=>({r:a.r+c.ramMB,c:a.c+c.cpu}),{r:m.app.ramMB,c:m.app.cpu});
+    $('#cpuBot').textContent=tot.c.toFixed(1)+'%';$('#ramBot').textContent=gb(tot.r);
+    spark('#sparkSys',hist.sys,'#8b6cf6');spark('#sparkBot',hist.bot,'#60a5fa')}
+  const foco=m?m.foco:-1;
+  $('#accs').innerHTML=NAMES.map((n,i)=>{const s=status[n]||{},r=m?m.contas[i]:null;
+    const on=s.loggedIn,cor=s.error?'var(--bad)':on?'var(--ok)':'var(--warn)';
+    const linha=s.error?'sem conexão':!on?'aguardando login':`<b>Nv ${s.level}</b> · ${fmt(s.gold)} ouro · ${esc(s.hunt?s.hunt.replace(' · nível ',' Nv'):'parado')}`;
+    const xp=on&&s.xpMax?100*s.xp/s.xpMax:0;
+    return `<section class="card acc ${foco===i?'foco':''}" style="margin-bottom:8px">
+      <div class="top"><span class="dot" style="background:${cor}"></span><span class="nm">${i+1} · ${n}</span></div>
+      <div class="st">${linha}</div><div class="xp"><i style="width:${xp}%"></i></div>
+      ${on&&s.xpPorHora!=null?`<div class="res" style="margin-bottom:6px"><div><span>XP/h</span><br>${fmt(s.xpPorHora)}</div><div><span>Lucro/h</span><br>${fmt(s.lucroPorHora)}</div></div>`:''}
+      <div class="res"><div><span>RAM</span><br>${r?gb(r.ramMB):'–'}</div><div><span>CPU</span><br>${r?r.cpu.toFixed(1)+'%':'–'}</div></div>
+      <div class="btns"><button class="${foco===i?'':'pri'}" onclick="send('${foco===i?'grid':'focus:'+i}')">${foco===i?'Grade':'Ver só'}</button>
+      <button onclick="send('home:${i}')" title="Volta para pokeidle.io">Jogo</button><button onclick="send('reload:${i}')" title="Recarregar">↻</button></div></section>`}).join('');
+}
+function onMetrics(x){m=x;lastMsg=Date.now();hist.sys.push(x.sistema.cpu);
+  hist.bot.push(x.contas.reduce((a,c)=>a+c.cpu,x.app.cpu));for(const k in hist)if(hist[k].length>60)hist[k].shift();
+  $('#live').classList.remove('off');$('#when').textContent='ao vivo';render()}
+if(wv)wv.addEventListener('message',e=>{try{onMetrics(JSON.parse(e.data))}catch{}});
+else setInterval(async()=>{try{const j=await (await fetch('/metrics')).json();if(j.result)onMetrics(j.result)}catch{}},2000);
+setInterval(()=>{if(Date.now()-lastMsg>6000){$('#live').classList.add('off');$('#when').textContent='sem dados'}},2000);
+async function poll(){try{const j=await (await fetch('/overview')).json();status=j.result.status||{};render()}catch{}}
+poll();setInterval(poll,3000);addEventListener('resize',render);
+</script></body></html>

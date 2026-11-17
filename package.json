@@ -1,0 +1,21 @@
+{
+  "name": "pokebot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "productName": "PokeBot",
+  "scripts": {
+    "start": "start host\\bin\\PokeBot.exe",
+    "server": "node server.js",
+    "build-host": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe -nologo -target:winexe -platform:x64 -out:host\\bin\\PokeBot-novo.exe -win32icon:host\\pokebot.ico -r:host\\bin\\Microsoft.Web.WebView2.Core.dll -r:host\\bin\\Microsoft.Web.WebView2.WinForms.dll -r:System.Windows.Forms.dll -r:System.Drawing.dll -r:System.dll -r:System.Web.Extensions.dll host\\Deck.cs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "playwright-core": "^1.65.0",
+    "zod": "^4.6.7"
+  }
+}
