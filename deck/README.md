@@ -10,7 +10,19 @@ O `pokebot-deck.patch` muda três coisas no deck:
 
 Feito sobre a versão `v2026.11.17` (commit `44a5e72`).
 
-## Montar
+## Instalar ou atualizar num comando
+
+Com o deck fechado, dentro da pasta do pokebot:
+
+```bash
+powershell -ExecutionPolicy Bypass -File instalar-deck.ps1
+```
+
+Ele atualiza o PokeBot, baixa o deck na versão do patch, aplica o patch, compila e cria o atalho
+"PokeIdle Deck + PokeBot" na Área de Trabalho. Precisa do Git, do Node.js e do
+[.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (`winget install Microsoft.DotNet.SDK.8`).
+
+## Montar à mão
 
 Precisa do [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) e do Node.js.
 
@@ -29,8 +41,9 @@ O exe fica em `%USERPROFILE%\PokeIdleMulti\publish\PokeIdleMulti.exe`, que é on
 
 1. Abra o `iniciar-deck.bat` (ou um atalho para ele). Ele abre o deck e sobe o servidor do PokeBot escondido (porta 8787).
 2. Entre nas contas no deck, na mesma ordem do `config/contas.json`.
-3. No `config/rules.json`, deixe `restock.auto` em `false`: quem compra é o carrinho 🛒 do deck.
+3. No `config/rules.json`, deixe `restock.auto` em `false` (já vem assim): quem compra é o carrinho 🛒 do deck.
 4. Use o **Modo Economia** do jogo, não o ⚡ ULTRA: com o ULTRA o PokeBot ainda não consegue ler o nível e a hunt da tela.
+5. O motor só se liga às páginas do jogo: a Kick e a Twitch ficam livres para logar com o PokeBot ligado.
 5. As aprovações de troca de hunt ficam em `http://127.0.0.1:8787`.
 
 Não abra o PokeBot.exe e o deck ao mesmo tempo: os dois usam a porta 9300, e a mesma conta aberta em dois lugares derruba uma delas.

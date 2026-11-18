@@ -67,11 +67,12 @@
   },
   "restock": {
     "_nota": "Recompra automatica: a cada intervaloMin minutos, cada conta logada compra o que faltar (gatilhos abaixo), gastando no maximo maxGoldSpendPct do ouro e nunca abaixo de reservaOuro. Bola so para conta que lanca bola sozinha (VIP).",
-    "auto": true,
+    "auto": false,
     "intervaloMin": 10,
     "potionMin": 100,
     "reviveMin": 5,
     "ball": "Ultra Ball",
-    "reservaOuro": 0
+    "reservaOuro": 0,
+    "_deck": "auto=false: com o PokeIdle Deck quem compra e o carrinho de cada conta no deck. Use true so com o PokeBot.exe antigo."
   }
 }
