@@ -37,8 +37,59 @@ const SHARED_PORT = 9300;
 let shared = null;
 async function sharedBrowser() {
   if (shared && shared.isConnected()) return shared;
-  shared = await connect(SHARED_PORT).catch(() => null);
+  shared = await connectSoJogo(SHARED_PORT).catch(() => null);
   return shared;
+}
+
+// Conexao com o deck que so enxerga as paginas do jogo. O Playwright se liga a TODAS as paginas do navegador
+// (e liga o Runtime nelas); o anti-robo da Kick percebe isso e trava o login (visto em 18/11/2026). Aqui o
+// transporte fica entre o Playwright e o navegador: pagina que nao e do pokeidle.io (Kick, Twitch, anuncios,
+// janelas do deck) e solta na hora, sem o Playwright nem saber que ela existe; so as do jogo (e os frames
+// delas) chegam ao motor.
+async function connectSoJogo(port) {
+  const info = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
+  const ws = new WebSocket(info.webSocketDebuggerUrl);
+  const ligadas = new Set();   // sessoes das paginas do jogo (e dos frames dentro delas)
+  let idProprio = 2e9;         // ids dos nossos pedidos (soltar pagina), para nao repassar as respostas
+  const fila = [];
+  const transporte = {
+    onmessage: undefined,
+    onclose: undefined,
+    send(msg) { const s = JSON.stringify(msg); if (ws.readyState === 1) ws.send(s); else fila.push(s); },
+    close() { try { ws.close(); } catch {} },
+  };
+  const soltar = (sessionId, pai) => {
+    ws.send(JSON.stringify({ id: idProprio++, method: 'Runtime.runIfWaitingForDebugger', sessionId }));
+    ws.send(JSON.stringify({ id: idProprio++, method: 'Target.detachFromTarget', params: { sessionId }, ...(pai ? { sessionId: pai } : {}) }));
+  };
+  ws.addEventListener('message', (e) => {
+    let m;
+    try { m = JSON.parse(e.data); } catch { return; }
+    if (m.id >= 2e9) return;                                  // resposta de um "soltar" nosso
+    if (m.method === 'Target.attachedToTarget') {
+      const { sessionId, targetInfo } = m.params;
+      const doJogo = m.sessionId ? ligadas.has(m.sessionId)
+        : targetInfo.type === 'page' && /^https:\/\/pokeidle\.io\//.test(targetInfo.url || '');
+      if (!doJogo) {
+        if (!m.sessionId) console.log(`[deck] pagina solta (nao e do jogo): ${(targetInfo.url || '(vazia)').slice(0, 80)}`);
+        soltar(sessionId, m.sessionId); return;
+      }
+      if (!m.sessionId) console.log(`[deck] pagina do jogo ligada: ${targetInfo.url}`);
+      ligadas.add(sessionId);
+    } else if (m.method === 'Target.detachedFromTarget') {
+      if (!ligadas.delete(m.params.sessionId)) return;
+    } else if (m.sessionId && !ligadas.has(m.sessionId)) {
+      return;                                                 // evento de uma pagina solta
+    }
+    if (transporte.onmessage) transporte.onmessage(m);
+  });
+  ws.addEventListener('close', () => { if (transporte.onclose) transporte.onclose('o deck fechou a conexao'); });
+  await new Promise((ok, falha) => { ws.addEventListener('open', ok, { once: true }); ws.addEventListener('error', falha, { once: true }); });
+  for (const s of fila.splice(0)) ws.send(s);
+  const browser = await chromium.connectOverCDP(transporte);
+  // Desconecta SO o motor (fecha o nosso socket). Nunca usar browser.close() aqui: fecharia o navegador do deck.
+  browser.__desconectar = () => transporte.close();
+  return browser;
 }
 // Acha a pagina do jogo da conta: no PokeBot.exe pela marca __pokebotAcc (o nome); no PokeIdle Deck pela marca
 // __pokebotPerfil (conta1..conta4, na ordem do config/contas.json). As lives e janelas do deck nao tem marca.
@@ -63,7 +114,12 @@ async function open(name) {
     const sb = await sharedBrowser();
     if (sb) {
       const page = await sharedPage(sb, name);
-      if (!page) throw new Error(`conta ${name} nao encontrada (pagina do jogo sem a marca da conta; ela esta ligada no deck?)`);
+      if (!page) {
+        // O deck acabou de abrir e a pagina ainda estava em branco quando o motor conectou (e foi solta):
+        // desconecta para a proxima tentativa ver a pagina ja no jogo.
+        if (sb.__desconectar) { sb.__desconectar(); shared = null; }
+        throw new Error(`conta ${name} nao encontrada (pagina do jogo sem a marca da conta; ela esta ligada no deck?)`);
+      }
       return (ctxs[name] = { ctx: page.context(), page, browser: sb });
     }
   }
@@ -457,13 +513,19 @@ async function irParaDireto(page, nome, nivel, forcar) {
   }
   if (!forcar) throw new Error(`o jogo nao aceitou a troca para ${alvo} em ${Math.round(insistir / 1000)} s (${tentativas} pedidos; em combate sem parar)`);
   // Forcar: desistir do combate (a equipe vai ao Centro e perde 10% do XP do nivel), curar e escolher de novo
+  // A equipe leva alguns segundos para chegar ao Centro; so depois o curar e a hunt nova valem. A primeira versao
+  // mandava tudo em ~2 s, o jogo ignorava e a conta ficava parada no Centro: agora espera chegar, cura e insiste
+  // na hunt por ate 30 s (desistir de novo custaria mais 10% do XP, entao nao repete o desistir).
   await enviar({ t: 'centro.desistir' });
-  for (let i = 0; i < 15 && !((await ponte(page)) || {}).noCentro; i++) await page.waitForTimeout(400);
-  await enviar({ t: 'centro.curar' });
-  await page.waitForTimeout(1200);
-  await enviar({ t: 'hunt.select', slug });
-  if (await esperarHunt(page, slug, 8000)) return { ok: true, hunt: alvo, direto: true, forcado: true, perda: '10% do XP do nível', curou: true };
-  throw new Error(`desisti do combate, mas o jogo ainda nao aceitou ${alvo}`);
+  for (let i = 0; i < 40 && !((await ponte(page)) || {}).noCentro; i++) await page.waitForTimeout(500);
+  const fimCentro = Date.now() + 30000;
+  let curas = 0;
+  while (Date.now() < fimCentro) {
+    if (curas < 3) { await enviar({ t: 'centro.curar' }); curas++; await page.waitForTimeout(1500); }
+    await enviar({ t: 'hunt.select', slug });
+    if (await esperarHunt(page, slug, 2500)) return { ok: true, hunt: alvo, direto: true, forcado: true, perda: '10% do XP do nível', curou: true };
+  }
+  throw new Error(`desisti do combate, mas o jogo nao aceitou ${alvo} em 30 s (a conta ficou no Centro)`);
 }
 
 // Vai para a hunt; se o jogo recusar (combate), e forcar=true: desiste do combate (perde o XP daquela luta),
