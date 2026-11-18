@@ -16,6 +16,9 @@ O `build-host` gera `host\bin\PokeBot-novo.exe`. O `iniciar.bat` troca esse arqu
 ## Usar
 Abra o `iniciar.bat` (ou crie um atalho para ele) e faça login nas contas dentro do app.
 
+## Com o PokeIdle Deck
+Dá para usar o [PokeIdle Deck](https://github.com/artbruno35/PokeIdleMulti) como janela das contas (lives, recompra pelo próprio jogo, PvP), com o PokeBot por trás cuidando da hunt. Veja [deck/README.md](deck/README.md).
+
 ## Suas contas
 Na primeira vez que o app abre, ele cria `config/contas.json` e `config/rules.json` a partir dos modelos `*.example.json`. Troque `conta1` … `conta4` pelos nomes das suas 4 contas nos dois arquivos e abra o app de novo.
 

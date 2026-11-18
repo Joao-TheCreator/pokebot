@@ -40,11 +40,14 @@ async function sharedBrowser() {
   shared = await connect(SHARED_PORT).catch(() => null);
   return shared;
 }
+// Acha a pagina do jogo da conta: no PokeBot.exe pela marca __pokebotAcc (o nome); no PokeIdle Deck pela marca
+// __pokebotPerfil (conta1..conta4, na ordem do config/contas.json). As lives e janelas do deck nao tem marca.
 async function sharedPage(browser, name) {
+  const perfil = 'conta' + (CONTAS.indexOf(name) + 1);
   for (let i = 0; i < 2; i++) {
     for (const p of browser.contexts().flatMap(c => c.pages())) {
-      const acc = await p.evaluate(() => window.__pokebotAcc).catch(() => null);
-      if (acc === name) return p;
+      const m = await p.evaluate(() => [window.__pokebotAcc, window.__pokebotPerfil]).catch(() => null);
+      if (m && (m[0] === name || m[1] === perfil)) return p;
     }
     await new Promise(r => setTimeout(r, 500));
   }
@@ -60,7 +63,7 @@ async function open(name) {
     const sb = await sharedBrowser();
     if (sb) {
       const page = await sharedPage(sb, name);
-      if (!page) throw new Error(`conta ${name} nao encontrada no PokeBot.exe (pagina sem a marca da conta)`);
+      if (!page) throw new Error(`conta ${name} nao encontrada (pagina do jogo sem a marca da conta; ela esta ligada no deck?)`);
       return (ctxs[name] = { ctx: page.context(), page, browser: sb });
     }
   }
@@ -133,10 +136,16 @@ async function ficha(page) {
     card = page.locator('.ativo-card >> visible=true').first();
   }
   if (!(await card.count())) throw new Error('pokemon em campo nao encontrado');
-  await card.locator('.ativo-nome').first().click({ timeout: 5000 }).catch(() => card.click({ timeout: 5000 }));
   const btn = page.locator('text="Copiar p/ ChatGPT" >> visible=true').first();
+  // Se a ficha ja estiver aberta (sobrou de antes), usa ela. Senao abre pelo cartao do pokemon em campo.
+  // Outras janelas/abas do jogo as vezes ficam por cima do cartao ("intercepts pointer events"): nesse caso
+  // o clique vai direto pelo DOM, que ignora o que esta por cima.
+  if (!(await btn.count())) {
+    await card.locator('.ativo-nome').first().click({ timeout: 3000 })
+      .catch(() => card.evaluate(el => (el.querySelector('.ativo-nome') || el).click()));
+  }
   await btn.waitFor({ state: 'visible', timeout: 6000 });
-  await btn.click({ timeout: 5000 });
+  await btn.click({ timeout: 3000 }).catch(() => btn.evaluate(el => (el.closest('button') || el).click()));
   await page.waitForFunction(() => !!window.__clip, null, { timeout: 4000 }).catch(() => {});
   const txt = await page.evaluate(() => { if (window.__pbRestore) window.__pbRestore(); return window.__clip; });
   if (!txt) throw new Error('nao consegui copiar a ficha');
@@ -402,9 +411,66 @@ async function garantirPrincipal(page) {
   return { trocou: true, principal: `${melhor.nome} Nv ${melhor.nv}` };
 }
 
+// ---- Troca de hunt direta (PokeIdle Deck com o pokebot.js) ----
+// O deck guarda a lista de hunts do proprio jogo (slug + nivel) e manda os mesmos pedidos dos botoes:
+// hunt.select, centro.desistir e centro.curar. Sem a ponte (PokeBot.exe, deck antigo) devolve null e o motor
+// usa o Mapa na tela, como antes.
+const normNome = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  .replace(/♀/g, '-f').replace(/♂/g, '-m').replace(/[.'’:]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+async function ponte(page) {
+  return page.evaluate(() => (window.__pokebot ? window.__pokebot.estado() : null)).catch(() => null);
+}
+async function slugDaHunt(page, nome, nivel) {
+  const hunts = await page.evaluate(() => window.__pokebot.hunts()).catch(() => null);
+  if (!Array.isArray(hunts)) return null;
+  const n = normNome(nome), nv = +nivel;
+  const doNivel = hunts.filter(h => +h.nivel === nv);
+  const porNome = (h) => normNome(h.nome) === n || h.slug === n || h.slug.startsWith(n + '-') || h.slug.endsWith('-' + n);
+  const achadas = doNivel.filter(porNome);
+  return achadas.length === 1 ? achadas[0].slug : (achadas.find(h => h.slug === n) || {}).slug || null;
+}
+async function esperarHunt(page, slug, ms) {
+  const fim = Date.now() + ms;
+  while (Date.now() < fim) {
+    const e = await ponte(page);
+    if (e && e.huntSlug === slug) return true;
+    await page.waitForTimeout(400);
+  }
+  return false;
+}
+async function irParaDireto(page, nome, nivel, forcar) {
+  const e = await ponte(page);
+  if (!e || !e.conectado || !e.hunts) return null;
+  const slug = await slugDaHunt(page, nome, nivel);
+  if (!slug) return null; // nome nao bateu com a lista do jogo: o Mapa resolve
+  const alvo = `${nome} · nível ${nivel}`;
+  if (e.huntSlug === slug) return { ok: true, hunt: alvo, jaEstava: true, direto: true };
+  const enviar = (obj) => page.evaluate((o) => window.__pokebot.enviar(o), obj);
+  // o jogo so troca fora de combate (~3 s sem dano): reenvia a cada 2 s para pegar a brecha entre uma luta e outra
+  const insistir = forcar ? 10000 : 30000;
+  const fim = Date.now() + insistir;
+  let tentativas = 0;
+  while (Date.now() < fim) {
+    tentativas++;
+    if ((await enviar({ t: 'hunt.select', slug })) !== 'ok') { if (tentativas === 1) return null; break; }
+    if (await esperarHunt(page, slug, 2000)) return { ok: true, hunt: alvo, direto: true, tentativas };
+  }
+  if (!forcar) throw new Error(`o jogo nao aceitou a troca para ${alvo} em ${Math.round(insistir / 1000)} s (${tentativas} pedidos; em combate sem parar)`);
+  // Forcar: desistir do combate (a equipe vai ao Centro e perde 10% do XP do nivel), curar e escolher de novo
+  await enviar({ t: 'centro.desistir' });
+  for (let i = 0; i < 15 && !((await ponte(page)) || {}).noCentro; i++) await page.waitForTimeout(400);
+  await enviar({ t: 'centro.curar' });
+  await page.waitForTimeout(1200);
+  await enviar({ t: 'hunt.select', slug });
+  if (await esperarHunt(page, slug, 8000)) return { ok: true, hunt: alvo, direto: true, forcado: true, perda: '10% do XP do nível', curou: true };
+  throw new Error(`desisti do combate, mas o jogo ainda nao aceitou ${alvo}`);
+}
+
 // Vai para a hunt; se o jogo recusar (combate), e forcar=true: desiste do combate (perde o XP daquela luta),
 // cura no Centro se precisar e tenta de novo.
 async function irPara(page, nome, nivel, forcar) {
+  const direto = await irParaDireto(page, nome, nivel, forcar);
+  if (direto) return direto;
   try { return await cacar(page, nome, nivel, forcar ? 20 : 45); }
   catch (e) {
     if (!forcar) throw e;
@@ -660,7 +726,14 @@ const actions = {
   async cacar({ acc, nome, nivel, espera, forcar }) {
     const { page } = await open(acc);
     if (forcar === '1' || forcar === 'true' || forcar === true) return irPara(page, nome, +nivel, true);
-    return cacar(page, nome, +nivel, +espera || 45);
+    return (await irParaDireto(page, nome, +nivel, false)) || cacar(page, nome, +nivel, +espera || 45);
+  },
+  // ponte do deck: estado (hunt atual, Centro) e a lista de hunts do jogo; null = sem a ponte (PokeBot.exe)
+  async ponte({ acc, lista }) {
+    const { page } = await open(acc);
+    const e = await ponte(page);
+    if (!e || !(lista === true || lista === '1')) return e;
+    return { ...e, lista: await page.evaluate(() => window.__pokebot.hunts()) };
   },
   // Deixa a conta pronta e na melhor hunt: cura se estiver no Centro, poe o principal em campo,
   // analisa (ficha -> pokeidleguide) e vai para a melhor hunt segura do criterio (forcando se o jogo recusar).

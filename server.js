@@ -67,7 +67,8 @@ async function tick() {
     try {
       const s = await actions.status({ acc });
       let eco = null;
-      try { eco = await economia(acc, accs.indexOf(acc)); } catch { delete ecoFoco[acc]; }
+      // economia so com o PokeBot.exe (ele manda as metricas e o foco); no PokeIdle Deck quem cuida e o ULTRA do deck
+      if (metrics) { try { eco = await economia(acc, accs.indexOf(acc)); } catch { delete ecoFoco[acc]; } }
       statusCache[acc] = { ...s, economia: eco ? eco.eco : (statusCache[acc] || {}).economia ?? null, at: Date.now() };
       const p = last[acc];
       if (p && s.loggedIn && p.loggedIn && s.hunt) {
@@ -176,6 +177,8 @@ async function huntLoop() {
         const r = await actions.avaliarHunt({ acc, crit: H.crit });
         ranks[acc] = { ...r.analise, at: Date.now() }; fs.writeFile(RANKS, JSON.stringify(ranks), () => {});
         if (r.jaEsta || (r.ganhoPct != null && r.ganhoPct < H.ganhoMinPct)) continue;
+        // sem hunt atual lida (conta no Centro/parada) a analise sai torta (ex.: "Geodude Nv 1"): espera a proxima rodada
+        if (!r.atual) { ultimaAnalise[acc] = Date.now() - (H.intervaloMin - 5) * 60000; continue; }
         const ganho = r.ganhoPct != null ? `+${r.ganhoPct}% ${H.crit}` : 'hunt atual fora do ranking';
         if (rules().accounts?.[acc]?.freeMode) {
           const out = await routes.irmelhor({ acc, crit: H.crit });

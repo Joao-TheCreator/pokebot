@@ -1,0 +1,125 @@
+diff --git a/PokeIdleMulti/AccountPane.cs b/PokeIdleMulti/AccountPane.cs
+index 2cfff92..ee5b265 100644
+--- a/PokeIdleMulti/AccountPane.cs
++++ b/PokeIdleMulti/AccountPane.cs
+@@ -150,6 +150,15 @@ internal sealed class AccountPane : UserControl
+     public event Action<AccountPane, string>? TopIdleLinkRequested;
+ 
+     public int Index { get; }
++
++    /// <summary>PokeBot: a ponte do motor (pokebot.js, embutido no exe).</summary>
++    private static readonly Lazy<string> PokebotScript = new(() =>
++    {
++        using var stream = typeof(AccountPane).Assembly.GetManifestResourceStream("pokebot.js")!;
++        using var reader = new StreamReader(stream);
++        return reader.ReadToEnd();
++    });
++
+     public string ProfileName => $"conta{Index + 1}";
+     public string AccountName { get; set; } = "";
+     public WebView2 WebView { get; } = new() { Dock = DockStyle.Fill, DefaultBackgroundColor = Theme.Back };
+@@ -252,6 +261,10 @@ internal sealed class AccountPane : UserControl
+             else if (message is not null && Echo.Parse(message) is Echo.Click click)
+                 Clicked?.Invoke(this, click);
+         };
++        // PokeBot: marca a pagina do jogo com o perfil da conta (conta1..conta4), para o motor achar cada uma.
++        await core.AddScriptToExecuteOnDocumentCreatedAsync(
++            $"if (window.top === window) Object.defineProperty(window, '__pokebotPerfil', {{ value: '{ProfileName}' }});");
++        await core.AddScriptToExecuteOnDocumentCreatedAsync(PokebotScript.Value);
+         await core.AddScriptToExecuteOnDocumentCreatedAsync(KeyScript);
+         await core.AddScriptToExecuteOnDocumentCreatedAsync(Echo.CaptureScript);
+         await core.AddScriptToExecuteOnDocumentCreatedAsync(Restock.Script);
+diff --git a/PokeIdleMulti/DeckForm.cs b/PokeIdleMulti/DeckForm.cs
+index 5f53860..65f1af5 100644
+--- a/PokeIdleMulti/DeckForm.cs
++++ b/PokeIdleMulti/DeckForm.cs
+@@ -23,7 +23,9 @@ internal sealed class DeckForm : Form
+     // para ~560 MB. Cada conta é um perfil, e perfis nunca dividem processo: o jogo fica separado.
+     internal const string BrowserArguments =
+         "--disable-background-timer-throttling --disable-backgrounding-occluded-windows " +
+-        "--disable-renderer-backgrounding --autoplay-policy=no-user-gesture-required --process-per-site";
++        "--disable-renderer-backgrounding --autoplay-policy=no-user-gesture-required --process-per-site" +
++        // PokeBot: porta local (so 127.0.0.1) para o motor do PokeBot ler as contas e trocar de hunt.
++        " --remote-debugging-port=9300";
+ 
+     private static readonly string DataRoot = Path.Combine(
+         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PokeIdleMulti");
+diff --git a/PokeIdleMulti/PokeIdleMulti.csproj b/PokeIdleMulti/PokeIdleMulti.csproj
+index 774501d..0ea172b 100644
+--- a/PokeIdleMulti/PokeIdleMulti.csproj
++++ b/PokeIdleMulti/PokeIdleMulti.csproj
+@@ -23,6 +23,7 @@
+     <EmbeddedResource Include="recompra.js" LogicalName="recompra.js" />
+     <EmbeddedResource Include="pvp.js" LogicalName="pvp.js" />
+     <EmbeddedResource Include="bonus.js" LogicalName="bonus.js" />
++    <EmbeddedResource Include="pokebot.js" LogicalName="pokebot.js" />
+   </ItemGroup>
+ 
+ </Project>
+diff --git a/PokeIdleMulti/pokebot.js b/PokeIdleMulti/pokebot.js
+new file mode 100644
+index 0000000..da9252a
+--- /dev/null
++++ b/PokeIdleMulti/pokebot.js
+@@ -0,0 +1,61 @@
++// PokeBot: ponte entre o jogo e o motor do PokeBot (que conecta pela porta local do deck).
++// Igual ao recompra.js, acompanha o socket do proprio jogo: guarda a lista de hunts do `welcome` e a hunt atual
++// (`huntSlug`) dos `estado`, e deixa o motor mandar SO tres pedidos, os mesmos dos botoes do jogo:
++// trocar de hunt (`hunt.select`), desistir do combate (`centro.desistir`) e curar no Centro (`centro.curar`).
++(() => {
++  if (window.top !== window || window.__pokebot) return;
++
++  const PERMITIDOS = new Set(['hunt.select', 'centro.desistir', 'centro.curar']);
++  let socket = null;
++  const st = { hunts: null, huntSlug: null, noCentro: null, welcomeEm: 0 };
++
++  const Native = window.WebSocket;
++  if (typeof Native === 'function') {
++    window.WebSocket = new Proxy(Native, {
++      construct(target, args, newTarget) {
++        const ws = Reflect.construct(target, args, newTarget);
++        try {
++          if (new URL(String(args[0]), location.href).host === location.host) attach(ws);
++        } catch { }
++        return ws;
++      },
++    });
++  }
++
++  function attach(ws) {
++    socket = ws;
++    ws.addEventListener('message', (e) => {
++      if (ws !== socket || typeof e.data !== 'string') return;
++      const head = /^\{"t":"([^"]*)"/.exec(e.data);
++      if (!head || (head[1] !== 'welcome' && head[1] !== 'estado')) return;
++      // o estado chega muitas vezes: so vale abrir o que fala da hunt ou do Centro
++      if (head[1] === 'estado' && !e.data.includes('"huntSlug"') && !e.data.includes('"noCentro"')) return;
++      let m;
++      try { m = JSON.parse(e.data); } catch { return; }
++      if (m.t === 'welcome') {
++        st.hunts = Array.isArray(m.hunts)
++          ? m.hunts.map((h) => ({ slug: h.slug, nivel: h.nivel, nome: h.nome ?? h.name ?? null, especies: (h.especies ?? []).map((x) => x.pokeId) }))
++          : null;
++        st.welcomeEm = Date.now();
++      }
++      const s = m.estado;
++      if (s && typeof s === 'object') {
++        if ('huntSlug' in s) st.huntSlug = s.huntSlug ?? null;
++        if ('noCentro' in s) st.noCentro = !!s.noCentro;
++      }
++    });
++  }
++
++  Object.defineProperty(window, '__pokebot', {
++    value: Object.freeze({
++      estado: () => ({ conectado: !!socket && socket.readyState === 1, huntSlug: st.huntSlug, noCentro: st.noCentro, hunts: st.hunts ? st.hunts.length : 0, welcomeEm: st.welcomeEm }),
++      hunts: () => st.hunts,
++      enviar: (obj) => {
++        if (!obj || !PERMITIDOS.has(obj.t)) return 'pedido nao permitido';
++        if (!socket || socket.readyState !== 1) return 'jogo desconectado';
++        socket.send(JSON.stringify(obj));
++        return 'ok';
++      },
++    }),
++  });
++})();

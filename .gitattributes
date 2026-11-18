@@ -1,0 +1,2 @@
+# o patch do deck precisa chegar igual (LF): o repo do deck usa LF
+*.patch -text
