@@ -489,7 +489,7 @@ async function esperarHunt(page, slug, ms) {
   const fim = Date.now() + ms;
   while (Date.now() < fim) {
     const e = await ponte(page);
-    if (e && e.huntSlug === slug) return true;
+    if (e && e.huntSlug === slug && !e.noCentro) return true;
     await page.waitForTimeout(400);
   }
   return false;
@@ -500,8 +500,11 @@ async function irParaDireto(page, nome, nivel, forcar) {
   const slug = await slugDaHunt(page, nome, nivel);
   if (!slug) return null; // nome nao bateu com a lista do jogo: o Mapa resolve
   const alvo = `${nome} · nível ${nivel}`;
-  if (e.huntSlug === slug) return { ok: true, hunt: alvo, jaEstava: true, direto: true };
+  // no Centro (desmaiou) a hunt continua marcada, mas a equipe nao esta cacando: precisa escolher de novo
+  if (e.huntSlug === slug && !e.noCentro) return { ok: true, hunt: alvo, jaEstava: true, direto: true };
   const enviar = (obj) => page.evaluate((o) => window.__pokebot.enviar(o), obj);
+  // no Centro: cura antes de voltar (curar com a equipe cheia nao custa nada)
+  if (e.noCentro) { await enviar({ t: 'centro.curar' }); await page.waitForTimeout(1500); }
   // o jogo so troca fora de combate (~3 s sem dano): reenvia a cada 2 s para pegar a brecha entre uma luta e outra
   const insistir = forcar ? 10000 : 30000;
   const fim = Date.now() + insistir;

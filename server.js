@@ -153,6 +153,30 @@ function consumo(acc) {
     metas: { potion: acc_.potionStock ?? R.potion?.targetStock ?? 300, potionItem: acc_.potion ?? R.potion?.type ?? 'Great Potion', revive: R.revive?.targetStock ?? 10, ball: R.restock?.ball ?? 'Ultra Ball' } };
 }
 
+// ---- Vigia da recompra do PokeIdle Deck ----
+// Visto em 19/11/2026: o deck.json com a recompra ligada e o script dela na pagina desligado (as contas ficaram sem
+// pocao). A cada minuto: se o deck diz ligada e a pagina esta desligada, manda de novo a config do deck.json, igual o
+// deck faz ao carregar a pagina.
+const DECK_JSON = path.join(process.env.LOCALAPPDATA || '', 'PokeIdleMulti', 'deck.json');
+const camel = (v) => (Array.isArray(v) ? v.map(camel) : v && typeof v === 'object'
+  ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k[0].toLowerCase() + k.slice(1), camel(x)])) : v);
+async function vigiarRecompraDeck() {
+  const deck = readJson(DECK_JSON, null);
+  if (!deck || !Array.isArray(deck.Restock)) return; // sem o deck (PokeBot.exe): nada a fazer
+  for (const [i, acc] of Object.keys(PORTS).entries()) {
+    const cfg = deck.Restock[i];
+    if (!cfg || !cfg.On || (deck.Off || [])[i] || !statusCache[acc]?.loggedIn) continue;
+    try {
+      const on = await actions.eval({ acc, code: 'window.__deckRecompra ? window.__deckRecompra.summary().on : null' });
+      if (on !== false) continue;
+      await actions.eval({ acc, code: `window.__deckRecompra.configure(${JSON.stringify(camel(cfg))})` });
+      log(acc, 'recompra do deck estava desligada na pagina: liguei de novo com a config do deck');
+    } catch {}
+  }
+}
+setInterval(vigiarRecompraDeck, 60000);
+setTimeout(vigiarRecompraDeck, 30000);
+
 // ---- Avisos para o PokeBot.exe (balao do Windows): o host busca a fila a cada POST de metrics ----
 const avisos = [];
 const avisar = (acc, titulo, texto) => { avisos.push({ acc, idx: Object.keys(PORTS).indexOf(acc), titulo, texto, t: Date.now() }); if (avisos.length > 20) avisos.shift(); };
