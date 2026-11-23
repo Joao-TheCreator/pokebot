@@ -187,6 +187,50 @@ const avisar = (acc, titulo, texto) => { avisos.push({ acc, idx: Object.keys(POR
 // A conta que voce esta olhando fica para a proxima rodada (a analise abre a ficha do pokemon no jogo).
 const ultimaAnalise = {};
 let analisando = false;
+// ---- ganho medido x estimativa do pokeidleguide ----
+// O guia estima menos que o jogo mede (VIP, guild, boosts): a escala vem das hunts que estao no ranking E foram
+// medidas por pelo menos MIN_H horas (data/hunts.json). Sem medida da hunt atual, ou sem escala, devolve null
+// (a analise segue como antes).
+const MIN_H = 0.5;
+const valorNum = (s) => { // "12 mi" | "609,4 mil" | "5.700" -> numero
+  const m = String(s || '').match(/([\d.,]+)\s*(mi|mil)?/); if (!m) return null;
+  const n = parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
+  return n * (m[2] === 'mi' ? 1e6 : m[2] === 'mil' ? 1e3 : 1);
+};
+const chaveHunt = (pokemon, nivel) => `${pokemon} · nível ${nivel}`;
+function medidoPorHora(chave, crit) {
+  const h = hunts[chave]; if (!h || h.sec < MIN_H * 3600) return null;
+  const v = crit === 'Ouro/h' ? h.gold : h.xp;
+  return v / (h.sec / 3600);
+}
+function escalaGuia(acc, crit) {
+  const amostras = (contas) => {
+    const out = [];
+    for (const a of contas) for (const row of (ranks[a]?.ranking?.[crit] || [])) {
+      const m = String(row[1] || '').match(/^(.*?) Nv (\d+)/); if (!m) continue;
+      const real = medidoPorHora(chaveHunt(m[1], m[2]), crit), guia = valorNum(row[2]);
+      if (real && guia) out.push(real / guia);
+    }
+    return out.sort((x, y) => x - y);
+  };
+  let s = amostras([acc]); if (!s.length) s = amostras(Object.keys(ranks));
+  return s.length ? s[Math.floor(s.length / 2)] : null; // mediana
+}
+function compararMedido(acc, r, crit) {
+  if (crit !== 'XP/h' && crit !== 'Ouro/h') return null;
+  const atualReal = medidoPorHora(r.atual, crit); if (!atualReal) return null;
+  const melhor = r.analise?.recomendacao?.[crit]?.melhor; if (!melhor) return null;
+  let alvoReal = medidoPorHora(chaveHunt(melhor.pokemon, melhor.nivel), crit), como = 'medido';
+  if (!alvoReal) {
+    const k = escalaGuia(acc, crit), g = melhor.valorNum ?? valorNum(melhor.valor);
+    if (!k || !g) return null;
+    alvoReal = g * k; como = `estimado ×${k.toFixed(2)}`;
+  }
+  const ganhoPct = Math.round((alvoReal / atualReal - 1) * 1000) / 10;
+  const fmt = (n) => n >= 1e6 ? (n / 1e6).toFixed(1).replace('.', ',') + ' mi' : Math.round(n / 1e3) + ' mil';
+  return { ganhoPct, texto: `${ganhoPct >= 0 ? '+' : ''}${ganhoPct}% ${crit} (atual ${fmt(atualReal)} medido; nova ${fmt(alvoReal)} ${como})` };
+}
+
 async function huntLoop() {
   const H = { ativo: false, intervaloMin: 30, crit: 'XP/h', ganhoMinPct: 10, ...((rules().hunt || {}).auto || {}) };
   if (!H.ativo || analisando) return;
@@ -203,7 +247,14 @@ async function huntLoop() {
         if (r.jaEsta || (r.ganhoPct != null && r.ganhoPct < H.ganhoMinPct)) continue;
         // sem hunt atual lida (conta no Centro/parada) a analise sai torta (ex.: "Geodude Nv 1"): espera a proxima rodada
         if (!r.atual) { ultimaAnalise[acc] = Date.now() - (H.intervaloMin - 5) * 60000; continue; }
-        const ganho = r.ganhoPct != null ? `+${r.ganhoPct}% ${H.crit}` : 'hunt atual fora do ranking';
+        let ganho = r.ganhoPct != null ? `+${r.ganhoPct}% ${H.crit}` : 'hunt atual fora do ranking';
+        if (r.ganhoPct == null) { // hunt atual fora do top 15: compara com o que ela rende de verdade (medido)
+          const c = compararMedido(acc, r, H.crit);
+          if (c) {
+            if (c.ganhoPct < H.ganhoMinPct) { log(acc, `hunt: fica em ${r.atual} — ${c.texto}`); continue; }
+            ganho = c.texto;
+          }
+        }
         if (rules().accounts?.[acc]?.freeMode) {
           const out = await routes.irmelhor({ acc, crit: H.crit });
           avisar(acc, `${acc}: troca de hunt`, `${out[acc]} (${ganho})`);
