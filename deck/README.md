@@ -10,17 +10,27 @@ O `pokebot-deck.patch` muda três coisas no deck:
 
 Feito sobre a versão `v2026.11.17` (commit `44a5e72`).
 
-## Instalar ou atualizar num comando
+## Instalar ou atualizar
 
-Com o deck fechado, dentro da pasta do pokebot:
+Com o deck fechado, dê dois cliques no **`instalar.bat`** na pasta do pokebot (baixada em ZIP ou com `git clone`).
 
-```bash
-powershell -ExecutionPolicy Bypass -File instalar-deck.ps1
-```
+Primeiro ele confere os requisitos e, se faltar algum, diz qual e como instalar:
 
-Ele atualiza o PokeBot, baixa o deck na versão do patch, aplica o patch, compila e cria o atalho
-"PokeIdle Deck + PokeBot" na Área de Trabalho. Precisa do Git, do Node.js e do
-[.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (`winget install Microsoft.DotNet.SDK.8`).
+| Precisa | Onde baixar | Pelo terminal |
+|---|---|---|
+| Git | https://git-scm.com/download/win | `winget install --id Git.Git -e` |
+| Node.js 18 ou mais novo | https://nodejs.org (LTS) | `winget install --id OpenJS.NodeJS.LTS -e` |
+| .NET 8 **SDK** (não só o Runtime) | https://dotnet.microsoft.com/download/dotnet/8.0 | `winget install --id Microsoft.DotNet.SDK.8 -e` |
+
+Depois de instalar o que faltava, feche a janela e abra o `instalar.bat` de novo (o Windows só enxerga programas novos numa janela nova).
+
+Com tudo certo, ele roda o `instalar-deck.ps1`, que:
+
+1. atualiza o PokeBot: `git pull` se a pasta veio do `git clone`; se veio em ZIP, baixa o ZIP novo do GitHub e copia por cima, sem tocar em `config\contas.json`, `config\rules.json`, `config\app.json`, `data\`, `profiles\` e `node_modules\`. Se não conseguir atualizar (sem internet, mudanças locais), avisa e segue com a versão que já está na pasta;
+2. baixa o deck na versão do patch, aplica o patch e compila;
+3. cria o atalho "PokeIdle Deck + PokeBot" na Área de Trabalho.
+
+Quem preferir o terminal pode rodar o script direto: `powershell -ExecutionPolicy Bypass -File instalar-deck.ps1`.
 
 ## Montar à mão
 

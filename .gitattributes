@@ -1,2 +1,4 @@
 # o patch do deck precisa chegar igual (LF): o repo do deck usa LF
 *.patch -text
+# .bat precisa de CRLF para o cmd ler direito (inclusive no ZIP do GitHub): guarda como esta
+*.bat -text
