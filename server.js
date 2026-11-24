@@ -231,6 +231,8 @@ function compararMedido(acc, r, crit) {
   return { ganhoPct, texto: `${ganhoPct >= 0 ? '+' : ''}${ganhoPct}% ${crit} (atual ${fmt(atualReal)} medido; nova ${fmt(alvoReal)} ${como})` };
 }
 
+const PARADA_MIN = 5;
+const ultimaParada = {};
 async function huntLoop() {
   const H = { ativo: false, intervaloMin: 30, crit: 'XP/h', ganhoMinPct: 10, ...((rules().hunt || {}).auto || {}) };
   if (!H.ativo || analisando) return;
@@ -238,6 +240,22 @@ async function huntLoop() {
   try {
     for (const [i, acc] of Object.keys(PORTS).entries()) {
       if (!statusCache[acc]?.loggedIn || !autoLigada(acc)) continue; // conta com a automacao desligada no painel: nao mexe
+      // Conta parada (logada e sem hunt) nao rende nada: vai direto para a melhor hunt, em qualquer conta (nao e troca,
+      // e comecar). O irMelhor cura, poe o principal em campo e so entao analisa (sem o "Geodude Nv 1" da analise torta).
+      // Tenta de novo a cada PARADA_MIN, sem esperar o intervaloMin.
+      if (!statusCache[acc].hunt && Date.now() - (ultimaParada[acc] || 0) >= PARADA_MIN * 60000) {
+        ultimaParada[acc] = Date.now();
+        await new Promise(res => setTimeout(res, 15000)); // parada de passagem (troca de hunt, desmaio): confere de novo
+        const s = await actions.status({ acc }).catch(() => null);
+        if (s && s.loggedIn && !s.hunt) {
+          try {
+            const out = await routes.irmelhor({ acc, crit: H.crit });
+            ultimaAnalise[acc] = Date.now();
+            avisar(acc, `${acc}: estava parada`, `${out[acc]}`);
+          } catch (e) { log(acc, 'conta parada, nao consegui por na hunt: ' + (e.message || e)); }
+          continue;
+        }
+      }
       if (Date.now() - (ultimaAnalise[acc] || 0) < H.intervaloMin * 60000) continue;
       if (metrics && metrics.foco === i && metrics.visiveis && metrics.visiveis.filter(Number).length === 1) continue; // so ela na tela: espera
       ultimaAnalise[acc] = Date.now();

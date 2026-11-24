@@ -56,4 +56,14 @@ O exe fica em `%USERPROFILE%\PokeIdleMulti\publish\PokeIdleMulti.exe`, que é on
 5. O motor só se liga às páginas do jogo: a Kick e a Twitch ficam livres para logar com o PokeBot ligado.
 5. As aprovações de troca de hunt ficam em `http://127.0.0.1:8787`.
 
+### O servidor precisa estar ligado
+
+A recompra do deck às vezes desliga sozinha na página do jogo; quem liga de novo (a cada minuto) é o servidor do PokeBot, que também faz a hunt automática. Abrir o deck direto pelo `PokeIdleMulti.exe` (um ícone fixado na barra de tarefas, por exemplo) **não** liga o servidor: as contas ficam sem comprar poção e revive e param no Centro. Para não depender de como o deck é aberto, deixe o servidor ligar com o Windows: um atalho na pasta de inicialização (`Win+R` → `shell:startup`) para
+
+```
+powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "<pasta do pokebot>\iniciar-servidor.ps1"
+```
+
+Rodar de novo não abre um segundo servidor. Para desligar isso, apague o atalho.
+
 Não abra o PokeBot.exe e o deck ao mesmo tempo: os dois usam a porta 9300, e a mesma conta aberta em dois lugares derruba uma delas.
