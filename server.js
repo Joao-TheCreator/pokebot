@@ -78,12 +78,45 @@ async function tick() {
         if (dt < 120 && dxp >= 0) {
           const h = (hunts[s.hunt] ||= { sec: 0, xp: 0, gold: 0 });
           h.sec += dt; h.xp += dxp; h.gold += dg;
+          // a mesma medida separada por tipagem do dia: a hunt rende diferente em cada uma
+          if (s.tipoDia) { const t = ((h.porTipo ||= {})[s.tipoDia] ||= { sec: 0, xp: 0, gold: 0 }); t.sec += dt; t.xp += dxp; t.gold += dg; }
         }
       }
       last[acc] = { ...s, at: Date.now() };
     } catch (e) { statusCache[acc] = { error: String(e.message || e), at: Date.now() }; }
   }
   fs.writeFile(HUNTS, JSON.stringify(hunts), () => {});
+  vigiarDiaEEventos();
+}
+
+// ---- Tipagem do dia e eventos 🎉: quando mudam, reanalisa as 4 contas na hora (sem esperar o intervaloMin) ----
+// Todo evento visto vai para data/eventos.jsonl (para aprender o formato e, depois, somar o bonus na comparacao).
+const EVENTOS = path.join(__dirname, 'data', 'eventos.jsonl');
+let diaVisto, eventosVistos;
+const candidato = { sig: '', n: 0 };
+function vigiarDiaEEventos() {
+  const logadas = Object.keys(PORTS).filter(a => statusCache[a]?.loggedIn);
+  if (!logadas.length) return;
+  const dia = logadas.map(a => statusCache[a].tipoDia).find(Boolean) || null;
+  const evs = [...new Set(logadas.map(a => statusCache[a].event).filter(Boolean))].sort();
+  const sigEv = JSON.stringify(evs);
+  if (diaVisto === undefined) { diaVisto = dia; eventosVistos = sigEv; return; } // ao subir: so guarda (o huntLoop ja analisa)
+  // so vale a mudanca que se repete em 3 leituras seguidas (~15 s): uma linha que pisca na tela nao dispara nada
+  const sig = (dia || diaVisto) + '|' + sigEv;
+  if (sig !== candidato.sig) { candidato.sig = sig; candidato.n = 1; return; }
+  if (++candidato.n < 3) return;
+  const mudou = [];
+  if (dia && dia !== diaVisto) { mudou.push(`tipagem do dia: ${diaVisto || '?'} → ${dia}`); diaVisto = dia; }
+  if (sigEv !== eventosVistos) {
+    const antes = JSON.parse(eventosVistos || '[]');
+    for (const e of evs.filter(e => !antes.includes(e))) { mudou.push('evento começou: ' + e); fs.appendFile(EVENTOS, JSON.stringify({ t: new Date().toISOString(), inicio: e, dia }) + '\n', () => {}); }
+    for (const e of antes.filter(e => !evs.includes(e))) { mudou.push('evento acabou: ' + e); fs.appendFile(EVENTOS, JSON.stringify({ t: new Date().toISOString(), fim: e, dia }) + '\n', () => {}); }
+    eventosVistos = sigEv;
+  }
+  if (!mudou.length) return;
+  log('-', mudou.join(' · ') + ' — reanalisando as contas');
+  avisar('-', 'PokeBot: o jogo mudou', mudou.join(' · ') + ' — reanalisando as hunts');
+  for (const a of Object.keys(PORTS)) ultimaAnalise[a] = 0; // o huntLoop (a cada minuto) analisa todas de novo
 }
 let metrics = null;
 let ticking = false;
@@ -198,8 +231,12 @@ const valorNum = (s) => { // "12 mi" | "609,4 mil" | "5.700" -> numero
   return n * (m[2] === 'mi' ? 1e6 : m[2] === 'mil' ? 1e3 : 1);
 };
 const chaveHunt = (pokemon, nivel) => `${pokemon} · nível ${nivel}`;
-function medidoPorHora(chave, crit) {
-  const h = hunts[chave]; if (!h || h.sec < MIN_H * 3600) return null;
+// Com a tipagem do dia, usa a medida feita naquela tipagem (se tiver MIN_H horas); senao, a media de todos os dias.
+function medidoPorHora(chave, crit, tipo) {
+  const h0 = hunts[chave]; if (!h0) return null;
+  const pt = tipo && h0.porTipo && h0.porTipo[tipo];
+  const h = pt && pt.sec >= MIN_H * 3600 ? pt : h0;
+  if (h.sec < MIN_H * 3600) return null;
   const v = crit === 'Ouro/h' ? h.gold : h.xp;
   return v / (h.sec / 3600);
 }
@@ -208,7 +245,7 @@ function escalaGuia(acc, crit) {
     const out = [];
     for (const a of contas) for (const row of (ranks[a]?.ranking?.[crit] || [])) {
       const m = String(row[1] || '').match(/^(.*?) Nv (\d+)/); if (!m) continue;
-      const real = medidoPorHora(chaveHunt(m[1], m[2]), crit), guia = valorNum(row[2]);
+      const real = medidoPorHora(chaveHunt(m[1], m[2]), crit, ranks[a]?.tipoDoDia), guia = valorNum(row[2]);
       if (real && guia) out.push(real / guia);
     }
     return out.sort((x, y) => x - y);
@@ -218,9 +255,10 @@ function escalaGuia(acc, crit) {
 }
 function compararMedido(acc, r, crit) {
   if (crit !== 'XP/h' && crit !== 'Ouro/h') return null;
-  const atualReal = medidoPorHora(r.atual, crit); if (!atualReal) return null;
+  const tipo = r.analise?.tipoDoDia || null; // compara as duas hunts na mesma tipagem do dia, quando houver medida
+  const atualReal = medidoPorHora(r.atual, crit, tipo); if (!atualReal) return null;
   const melhor = r.analise?.recomendacao?.[crit]?.melhor; if (!melhor) return null;
-  let alvoReal = medidoPorHora(chaveHunt(melhor.pokemon, melhor.nivel), crit), como = 'medido';
+  let alvoReal = medidoPorHora(chaveHunt(melhor.pokemon, melhor.nivel), crit, tipo), como = 'medido';
   if (!alvoReal) {
     const k = escalaGuia(acc, crit), g = melhor.valorNum ?? valorNum(melhor.valor);
     if (!k || !g) return null;

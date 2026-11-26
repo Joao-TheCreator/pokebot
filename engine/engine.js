@@ -337,6 +337,7 @@ function parseStatus(t, acc) {
     xpMax: xp ? num(xp[2]) : null,
     hunt: hunt || null,
     event: lines.find(l => l.startsWith('🎉')) || null,
+    tipoDia: tipoDoDia(t) || null, // "Tipagem do dia" do jogo (WATER, FIRE...): 2x mais fortes nas hunts do Mapa
     // so mensagens do proprio jogo (o chat tem "HH:MM Nome [n]: ...")
     log: lines.filter(l => !/^\d\d:\d\d /.test(l) && /derrotado|poção usada|capturad|shiny|desmai/i.test(l)).slice(-5),
   };
