@@ -278,6 +278,24 @@ async function huntLoop() {
   try {
     for (const [i, acc] of Object.keys(PORTS).entries()) {
       if (!statusCache[acc]?.loggedIn || !autoLigada(acc)) continue; // conta com a automacao desligada no painel: nao mexe
+      // Hunt fixa (rules.json accounts.<conta>.huntFixa = { nome, nivel }): a conta fica nela, sem analise nem troca
+      // (ex.: farm de Fragmento de Chave na Outland). Parada, volta para essa mesma hunt, nao para a "melhor".
+      const fixa = rules().accounts?.[acc]?.huntFixa;
+      if (fixa && fixa.nome && fixa.nivel) {
+        if (!statusCache[acc].hunt && Date.now() - (ultimaParada[acc] || 0) >= PARADA_MIN * 60000) {
+          ultimaParada[acc] = Date.now();
+          await new Promise(res => setTimeout(res, 15000));
+          const s = await actions.status({ acc }).catch(() => null);
+          if (s && s.loggedIn && !s.hunt) {
+            try {
+              await run('cacar', { acc, nome: fixa.nome, nivel: fixa.nivel, forcar: true }, acc);
+              log(acc, `hunt fixa: estava parada, voltou para ${fixa.nome} Nv ${fixa.nivel}`);
+              avisar(acc, `${acc}: estava parada`, `voltou para a hunt fixa ${fixa.nome} Nv ${fixa.nivel}`);
+            } catch (e) { log(acc, 'hunt fixa: nao consegui voltar: ' + (e.message || e)); }
+          }
+        }
+        continue;
+      }
       // Conta parada (logada e sem hunt) nao rende nada: vai direto para a melhor hunt, em qualquer conta (nao e troca,
       // e comecar). O irMelhor cura, poe o principal em campo e so entao analisa (sem o "Geodude Nv 1" da analise torta).
       // Tenta de novo a cada PARADA_MIN, sem esperar o intervaloMin.
